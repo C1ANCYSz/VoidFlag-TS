@@ -1,4 +1,5 @@
 import { FlagDefinition, FlagMap } from '@voidflag/schema';
+const EAGER_ACCESSOR_THRESHOLD = 2;
 
 export class VoidFlagError extends Error {
   constructor(message: string) {
@@ -144,7 +145,11 @@ export class VoidClient<S extends FlagMap> {
   // One stable accessor object per flag key, created lazily on first call.
   private accessorCache: Partial<{
     [K in keyof S]: Accessor<S[K]>;
-  }> = {};
+  }> = Object.create(null);
+
+  // private accessorCache: Partial<{
+  //   [K in keyof S]: Accessor<S[K]>;
+  // }> = {};
 
   // Disposed guard — set to true after dispose() is called.
   #disposed = false;
@@ -159,9 +164,9 @@ export class VoidClient<S extends FlagMap> {
     [K in keyof S]: Accessor<S[K]>;
   };
   constructor(schema: S) {
-    this.store = {} as {
-      [K in keyof S]: RuntimeFlag<S[K]>;
-    };
+    type Store = { [K in keyof S]: RuntimeFlag<S[K]> };
+
+    this.store = Object.create(null) as Store;
 
     for (const key in schema) {
       const def = schema[key];
@@ -174,14 +179,38 @@ export class VoidClient<S extends FlagMap> {
       };
     }
 
+    if (Object.keys(schema).length < EAGER_ACCESSOR_THRESHOLD) {
+      this.flags = this.#buildEagerFlags(schema);
+    } else {
+      this.flags = this.#buildLazyFlagsObject(schema);
+    }
+  }
+
+  #buildEagerFlags(schema: S): Readonly<{ [K in keyof S]: Accessor<S[K]> }> {
     const flags = {} as { [K in keyof S]: Accessor<S[K]> };
+
     for (const key in schema) {
       const accessor = this.#buildAccessor(key);
-      this.accessorCache[key] = accessor; // ← add this
+      this.accessorCache[key] = accessor;
       flags[key] = accessor;
     }
-    this.flags = Object.freeze(flags);
+
+    return Object.freeze(flags);
   }
+
+  #buildLazyFlagsObject(schema: S) {
+    const flags = {} as { [K in keyof S]: Accessor<S[K]> };
+
+    for (const key in schema) {
+      Object.defineProperty(flags, key, {
+        get: () => this.flag(key),
+        enumerable: true,
+      });
+    }
+
+    return Object.seal(flags);
+  }
+
   #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
     const runtime = this.store[key];
     const assert = this.#assertNotDisposed.bind(this);
@@ -286,6 +315,9 @@ export class VoidClient<S extends FlagMap> {
   flag<K extends keyof S>(key: K): Accessor<S[K]> {
     this.#assertNotDisposed();
     this.#assertKeyExists(key);
+    if (!this.accessorCache[key]) {
+      this.accessorCache[key] = this.#buildAccessor(key);
+    }
     return this.accessorCache[key]!;
   }
   #assertKeyExists(key: keyof S) {
@@ -325,6 +357,16 @@ export class VoidClient<S extends FlagMap> {
   -------------------------------------------- */
 
   hydrate<K extends keyof S>(key: K, data: Partial<RuntimeFlag<S[K]>>) {
+    this.#assertNotDisposed();
+
+    // 🚨 Prototype pollution guard
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+      throw new VoidFlagError(`Invalid flag key "${String(key)}"`);
+    }
+
+    this.#assertKeyExists(key);
+
+    // Safe merge
     Object.assign(this.store[key], data);
   }
 
@@ -356,14 +398,13 @@ export class VoidClient<S extends FlagMap> {
   dispose() {
     if (this.#disposed) return;
     this.#disposed = true;
-    this.accessorCache = {};
   }
 }
 
 function stableHash(input: string): number {
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
-    hash = (hash * 33) ^ input.charCodeAt(i);
+    hash = (Math.imul(hash, 33) ^ input.charCodeAt(i)) >>> 0;
   }
-  return Math.abs(hash >>> 0);
+  return hash;
 }
