@@ -34,6 +34,15 @@ export type RuntimeFlag<F extends FlagDefinition> = {
 
   rollout?: number;
 };
+type SeedingProps = {
+  enabled?: boolean;
+  value?: boolean | string | number;
+  rollout?: number;
+};
+
+type SeedMap<S extends FlagMap> = {
+  [K in keyof S]?: SeedingProps;
+};
 
 /* --------------------------------------------
    Node Shapes (Compile-time Correct)
@@ -52,9 +61,7 @@ type VariantNode<T> = {
   rollout: number;
 };
 
-type NodeFor<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
-  ? BooleanNode
-  : VariantNode<InferFlagValue<F>>;
+type NodeFor<F extends FlagDefinition> = F extends { type: 'BOOLEAN' } ? BooleanNode : VariantNode<InferFlagValue<F>>;
 
 /* --------------------------------------------
    Accessor / Snapshot Shape
@@ -85,9 +92,7 @@ function buildBooleanAccessor(
   Object.defineProperty(node, 'value', {
     get(): boolean {
       assertNotDisposed();
-      return runtime.enabled
-        ? (runtime.value as boolean)
-        : (runtime.fallback as boolean);
+      return runtime.enabled ? (runtime.value as boolean) : (runtime.fallback as boolean);
     },
     enumerable: true,
   });
@@ -138,31 +143,20 @@ function buildVariantAccessor<T extends string | number>(
 }
 
 export class VoidClient<S extends FlagMap> {
+  #disposed = false;
+
   private store: {
     [K in keyof S]: RuntimeFlag<S[K]>;
   };
 
-  // One stable accessor object per flag key, created lazily on first call.
   private accessorCache: Partial<{
     [K in keyof S]: Accessor<S[K]>;
   }> = Object.create(null);
 
-  // private accessorCache: Partial<{
-  //   [K in keyof S]: Accessor<S[K]>;
-  // }> = {};
-
-  // Disposed guard — set to true after dispose() is called.
-  #disposed = false;
-  /**
-   * Typed property-based access to all flags.
-   *
-   * @example
-   * vf.flags.fontSize.value
-   * vf.flags.themeColor.rollout
-   */
   public readonly flags: {
     [K in keyof S]: Accessor<S[K]>;
   };
+
   constructor(schema: S) {
     type Store = { [K in keyof S]: RuntimeFlag<S[K]> };
 
@@ -183,6 +177,75 @@ export class VoidClient<S extends FlagMap> {
       this.flags = this.#buildEagerFlags(schema);
     } else {
       this.flags = this.#buildLazyFlagsObject(schema);
+    }
+  }
+  /* --------------------------------------------
+   seed()
+
+   Bulk-overrides flag values before the client
+   is used in earnest — intended to be called once
+   at startup with a local seed file so consumers
+   can develop/test without hitting your server.
+
+   Accepts a partial map of flag keys → partial
+   RuntimeFlag overrides. Unknown keys throw to
+   catch typos in seed files early.
+
+   Returns `this` for chaining:
+     const vf = new VoidClient(schema).seed(localSeeds);
+
+   In production, call seed() before any network
+   hydration — server values will overwrite seeds
+   via hydrate() as normal.
+-------------------------------------------- */
+  seed(overrides: SeedMap<S>): this {
+    this.#assertNotDisposed();
+
+    for (const key in overrides) {
+      this.#assertSafeKey(key);
+      this.#assertKeyExists(key);
+
+      // 🚨 Prototype pollution guard — mirrors hydrate()
+      const patch = overrides[key];
+      if (!patch) continue;
+
+      const runtime = this.store[key];
+
+      // ---- value type check ----
+      if (patch.value !== undefined) {
+        if (runtime.type === 'BOOLEAN' && typeof patch.value !== 'boolean') {
+          throw new VoidFlagError(`seed(): "${key}" expects boolean, got ${typeof patch.value}`);
+        }
+
+        if (runtime.type === 'STRING' && typeof patch.value !== 'string') {
+          throw new VoidFlagError(`seed(): "${key}" expects string, got ${typeof patch.value}`);
+        }
+
+        if (runtime.type === 'NUMBER' && typeof patch.value !== 'number') {
+          throw new VoidFlagError(`seed(): "${key}" expects number, got ${typeof patch.value}`);
+        }
+      }
+
+      // ---- rollout rules ----
+      if (patch.rollout !== undefined) {
+        if (runtime.type === 'BOOLEAN') {
+          throw new VoidFlagError(`seed(): "${key}" is BOOLEAN and cannot have rollout`);
+        }
+
+        if (patch.rollout < 0 || patch.rollout > 100) {
+          throw new VoidFlagError(`seed(): "${key}" rollout must be between 0–100`);
+        }
+      }
+
+      // safe merge
+      this.hydrate(key as keyof S, patch as Partial<RuntimeFlag<S[keyof S]>>);
+    }
+
+    return this;
+  }
+  #assertSafeKey(key: string) {
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+      throw new VoidFlagError(`Invalid flag key "${key}"`);
     }
   }
 
@@ -217,16 +280,13 @@ export class VoidClient<S extends FlagMap> {
 
     switch (runtime.type) {
       case 'BOOLEAN':
-        return buildBooleanAccessor(
-          assert,
-          runtime as RuntimeFlag<FlagDefinition & { type: 'BOOLEAN' }>,
-        ) as Accessor<S[K]>;
+        return buildBooleanAccessor(assert, runtime as RuntimeFlag<FlagDefinition & { type: 'BOOLEAN' }>) as Accessor<
+          S[K]
+        >;
       default:
         return buildVariantAccessor(
           assert,
-          runtime as RuntimeFlag<
-            FlagDefinition & { type: 'STRING' | 'NUMBER' }
-          >,
+          runtime as RuntimeFlag<FlagDefinition & { type: 'STRING' | 'NUMBER' }>,
         ) as Accessor<S[K]>;
     }
   }
@@ -236,9 +296,7 @@ export class VoidClient<S extends FlagMap> {
 
   #assertNotDisposed() {
     if (this.#disposed) {
-      throw new VoidFlagError(
-        'VoidClient has been disposed. Create a new instance to continue using flags.',
-      );
+      throw new VoidFlagError('VoidClient has been disposed. Create a new instance to continue using flags.');
     }
   }
 
@@ -334,10 +392,7 @@ export class VoidClient<S extends FlagMap> {
      BOOLEAN) are not subject to rollout — returns
      enabled state directly.
   -------------------------------------------- */
-  isRolledOutFor<K extends RolloutCapableKeys<S>>(
-    key: K,
-    userId: string,
-  ): boolean {
+  isRolledOutFor<K extends RolloutCapableKeys<S>>(key: K, userId: string): boolean {
     this.#assertNotDisposed();
     this.#assertKeyExists(key);
     const f = this.store[key];
@@ -360,10 +415,8 @@ export class VoidClient<S extends FlagMap> {
     this.#assertNotDisposed();
 
     // 🚨 Prototype pollution guard
-    if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
-      throw new VoidFlagError(`Invalid flag key "${String(key)}"`);
-    }
 
+    this.#assertSafeKey(String(key));
     this.#assertKeyExists(key);
 
     // Safe merge
@@ -380,19 +433,17 @@ export class VoidClient<S extends FlagMap> {
     if (!f) throw new VoidFlagError(`Flag "${String(key)}" does not exist`);
     const base = {
       enabled: f.enabled,
-      value: f.enabled ? f.value : f.fallback,
+      value: f.value,
       fallback: f.fallback,
     };
-    return Object.freeze(
-      f.type === 'BOOLEAN' ? base : { ...base, rollout: f.rollout ?? 100 },
-    ) as Snapshot<S[K]>;
+    return Object.freeze(f.type === 'BOOLEAN' ? base : { ...base, rollout: f.rollout ?? 100 }) as Snapshot<S[K]>;
   }
 
   debugSnapshots(): { [K in keyof S]: Snapshot<S[K]> } {
     this.#assertNotDisposed();
-    return Object.fromEntries(
-      Object.keys(this.store).map((k) => [k, this.snapshot(k as keyof S)]),
-    ) as { [K in keyof S]: Snapshot<S[K]> };
+    return Object.fromEntries(Object.keys(this.store).map((k) => [k, this.snapshot(k as keyof S)])) as {
+      [K in keyof S]: Snapshot<S[K]>;
+    };
   }
 
   dispose() {
@@ -402,6 +453,7 @@ export class VoidClient<S extends FlagMap> {
 }
 
 function stableHash(input: string): number {
+  //djb2
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = (Math.imul(hash, 33) ^ input.charCodeAt(i)) >>> 0;
