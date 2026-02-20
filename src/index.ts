@@ -1,4 +1,4 @@
-import { FlagDefinition, FlagMap } from '@voidflag/schema';
+import { BooleanFlag, FlagDefinition, FlagMap, NumberFlag, StringFlag } from '@voidflag/schema';
 const EAGER_ACCESSOR_THRESHOLD = 2;
 
 export class VoidFlagError extends Error {
@@ -12,11 +12,18 @@ export class VoidFlagError extends Error {
    Type Helpers
 -------------------------------------------- */
 
-type InferFlagValue<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
+// type InferFlagValue<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
+//   ? boolean
+//   : F extends { type: 'STRING' }
+//     ? string
+//     : F extends { type: 'NUMBER' }
+//       ? number
+//       : never;
+type InferFlagValue<F extends FlagDefinition> = F extends BooleanFlag
   ? boolean
-  : F extends { type: 'STRING' }
+  : F extends StringFlag
     ? string
-    : F extends { type: 'NUMBER' }
+    : F extends NumberFlag
       ? number
       : never;
 
@@ -41,7 +48,16 @@ type SeedingProps = {
 };
 
 type SeedMap<S extends FlagMap> = {
-  [K in keyof S]?: SeedingProps;
+  [K in keyof S]?: S[K] extends { type: 'BOOLEAN' }
+    ? {
+        value?: boolean;
+        enabled?: boolean;
+      }
+    : {
+        value?: InferFlagValue<S[K]>;
+        enabled?: boolean;
+        rollout?: number;
+      };
 };
 
 /* --------------------------------------------
@@ -141,6 +157,11 @@ function buildVariantAccessor<T extends string | number>(
   });
   return Object.freeze(node);
 }
+interface ClientOptions<S extends FlagMap> {
+  schema: S;
+  seedingSchema?: SeedMap<S>; // ✅ now linked to S
+  apiKey?: string;
+}
 
 export class VoidClient<S extends FlagMap> {
   #disposed = false;
@@ -157,13 +178,12 @@ export class VoidClient<S extends FlagMap> {
     [K in keyof S]: Accessor<S[K]>;
   };
 
-  constructor(schema: S) {
+  constructor(opts: ClientOptions<S>) {
     type Store = { [K in keyof S]: RuntimeFlag<S[K]> };
-
     this.store = Object.create(null) as Store;
 
-    for (const key in schema) {
-      const def = schema[key];
+    for (const key in opts.schema) {
+      const def = opts.schema[key];
 
       this.store[key] = {
         type: def.type,
@@ -172,11 +192,14 @@ export class VoidClient<S extends FlagMap> {
         enabled: true,
       };
     }
+    if (opts.seedingSchema) {
+      this.seed(opts.seedingSchema);
+    }
 
-    if (Object.keys(schema).length < EAGER_ACCESSOR_THRESHOLD) {
-      this.flags = this.#buildEagerFlags(schema);
+    if (Object.keys(opts.schema).length < EAGER_ACCESSOR_THRESHOLD) {
+      this.flags = this.#buildEagerFlags(opts.schema);
     } else {
-      this.flags = this.#buildLazyFlagsObject(schema);
+      this.flags = this.#buildLazyFlagsObject(opts.schema);
     }
   }
   /* --------------------------------------------
@@ -201,48 +224,49 @@ export class VoidClient<S extends FlagMap> {
   seed(overrides: SeedMap<S>): this {
     this.#assertNotDisposed();
 
-    for (const key in overrides) {
-      this.#assertSafeKey(key);
+    for (const rawKey in overrides) {
+      this.#assertSafeKey(rawKey);
+
+      const key = rawKey as keyof S;
       this.#assertKeyExists(key);
 
-      // 🚨 Prototype pollution guard — mirrors hydrate()
       const patch = overrides[key];
       if (!patch) continue;
 
       const runtime = this.store[key];
 
-      // ---- value type check ----
+      // --- value type runtime guard ---
       if (patch.value !== undefined) {
         if (runtime.type === 'BOOLEAN' && typeof patch.value !== 'boolean') {
-          throw new VoidFlagError(`seed(): "${key}" expects boolean, got ${typeof patch.value}`);
+          throw new VoidFlagError(`seed(): "${String(key)}" expects boolean`);
         }
 
         if (runtime.type === 'STRING' && typeof patch.value !== 'string') {
-          throw new VoidFlagError(`seed(): "${key}" expects string, got ${typeof patch.value}`);
+          throw new VoidFlagError(`seed(): "${String(key)}" expects string`);
         }
 
         if (runtime.type === 'NUMBER' && typeof patch.value !== 'number') {
-          throw new VoidFlagError(`seed(): "${key}" expects number, got ${typeof patch.value}`);
+          throw new VoidFlagError(`seed(): "${String(key)}" expects number`);
         }
       }
 
-      // ---- rollout rules ----
-      if (patch.rollout !== undefined) {
+      // --- rollout guard ---
+      if ('rollout' in patch && patch.rollout !== undefined) {
         if (runtime.type === 'BOOLEAN') {
-          throw new VoidFlagError(`seed(): "${key}" is BOOLEAN and cannot have rollout`);
+          throw new VoidFlagError(`seed(): "${String(key)}" is BOOLEAN and cannot have rollout`);
         }
 
         if (patch.rollout < 0 || patch.rollout > 100) {
-          throw new VoidFlagError(`seed(): "${key}" rollout must be between 0–100`);
+          throw new VoidFlagError(`seed(): "${String(key)}" rollout must be between 0–100`);
         }
       }
 
-      // safe merge
-      this.hydrate(key as keyof S, patch as Partial<RuntimeFlag<S[keyof S]>>);
+      Object.assign(runtime, patch);
     }
 
     return this;
   }
+
   #assertSafeKey(key: string) {
     if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
       throw new VoidFlagError(`Invalid flag key "${key}"`);
