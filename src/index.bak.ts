@@ -1,15 +1,22 @@
-// import { FlagDefinition, FlagMap } from '@voidflag/schema';
+import {
+  BooleanFlag,
+  FlagDefinition,
+  FlagMap,
+  NumberFlag,
+  StringFlag,
+} from '@voidflag/schema';
+const EAGER_ACCESSOR_THRESHOLD = 2;
 
-// export class VoidFlagError extends Error {
-//   constructor(message: string) {
-//     super(message);
-//     this.name = 'VoidFlagError';
-//   }
-// }
+export class VoidFlagError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'VoidFlagError';
+  }
+}
 
-// /* --------------------------------------------
-//    Type Helpers
-// -------------------------------------------- */
+/* --------------------------------------------
+   Type Helpers
+-------------------------------------------- */
 
 // type InferFlagValue<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
 //   ? boolean
@@ -17,229 +24,482 @@
 //     ? string
 //     : F extends { type: 'NUMBER' }
 //       ? number
-//       : F extends { type: 'KILLSWITCH' }
-//         ? boolean
-//         : never;
+//       : never;
+type InferFlagValue<F extends FlagDefinition> = F extends BooleanFlag
+  ? boolean
+  : F extends StringFlag
+    ? string
+    : F extends NumberFlag
+      ? number
+      : never;
 
-// /* --------------------------------------------
-//    Runtime Flag Shape
-// -------------------------------------------- */
+/* --------------------------------------------
+   Runtime Flag Shape
+-------------------------------------------- */
 
-// export type RuntimeFlag<F extends FlagDefinition> = {
-//   type: F['type'];
+export type RuntimeFlag<F extends FlagDefinition> = {
+  type: F['type'];
 
-//   value: InferFlagValue<F>;
-//   fallback: InferFlagValue<F>;
+  value: InferFlagValue<F>;
+  fallback: InferFlagValue<F>;
 
-//   enabled: boolean;
+  enabled: boolean;
 
-//   rollout?: number;
-// };
+  rollout?: number;
+};
+type SeedingProps = {
+  enabled?: boolean;
+  value?: boolean | string | number;
+  rollout?: number;
+};
 
-// /* --------------------------------------------
-//    Node Shapes (Compile-time Correct)
-// -------------------------------------------- */
+type SeedMap<S extends FlagMap> = {
+  [K in keyof S]?: S[K] extends { type: 'BOOLEAN' }
+    ? {
+        value?: boolean;
+        enabled?: boolean;
+      }
+    : {
+        value?: InferFlagValue<S[K]>;
+        enabled?: boolean;
+        rollout?: number;
+      };
+};
 
-// type KillSwitchNode = {
-//   enabled: boolean;
-// };
+/* --------------------------------------------
+   Node Shapes (Compile-time Correct)
+-------------------------------------------- */
 
-// type BooleanNode = {
-//   value: boolean;
-//   fallback: boolean;
-//   enabled: boolean;
-// };
+type BooleanNode = {
+  value: boolean;
+  fallback: boolean;
+  enabled: boolean;
+};
 
-// type VariantNode<T> = {
-//   value: T;
-//   fallback: T;
-//   enabled: boolean;
-//   rollout: number;
-// };
+type VariantNode<T> = {
+  value: T;
+  fallback: T;
+  enabled: boolean;
+  rollout: number;
+};
 
-// type NodeFor<F extends FlagDefinition> = F extends { type: 'KILLSWITCH' }
-//   ? KillSwitchNode
-//   : F extends { type: 'BOOLEAN' }
-//     ? BooleanNode
-//     : VariantNode<InferFlagValue<F>>;
+type NodeFor<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
+  ? BooleanNode
+  : VariantNode<InferFlagValue<F>>;
 
-// /* --------------------------------------------
-//    Accessor Shape
+/* --------------------------------------------
+   Accessor / Snapshot Shape
+-------------------------------------------- */
+type RolloutCapableKeys<S extends FlagMap> = {
+  [K in keyof S]: NodeFor<S[K]> extends { rollout: number } ? K : never;
+}[keyof S];
 
-//    A stable object reference whose properties
-//    are live getters delegating to the store.
-//    The type mirrors NodeFor<F> exactly so
-//    callers get the same narrowed shape.
-// -------------------------------------------- */
+export type Accessor<F extends FlagDefinition> = Readonly<NodeFor<F>>;
+export type Snapshot<F extends FlagDefinition> = Readonly<NodeFor<F>>;
 
-// export type Accessor<F extends FlagDefinition> = Readonly<NodeFor<F>>;
-// export type Snapshot<F extends FlagDefinition> = Readonly<NodeFor<F>>;
-// /* --------------------------------------------
-//    VoidClient
-// -------------------------------------------- */
+/* --------------------------------------------
+   VoidClient
+-------------------------------------------- */
 
-// export class VoidClient<S extends FlagMap> {
-//   private store: {
-//     [K in keyof S]: RuntimeFlag<S[K]>;
-//   };
+function buildBooleanAccessor(
+  assertNotDisposed: () => void,
+  runtime: RuntimeFlag<FlagDefinition & { type: 'BOOLEAN' }>,
+): Readonly<BooleanNode> {
+  const node = {} as BooleanNode;
+  Object.defineProperty(node, 'enabled', {
+    get(): boolean {
+      assertNotDisposed();
+      return runtime.enabled;
+    },
+    enumerable: true,
+  });
+  Object.defineProperty(node, 'value', {
+    get(): boolean {
+      assertNotDisposed();
+      return runtime.enabled ? (runtime.value as boolean) : (runtime.fallback as boolean);
+    },
+    enumerable: true,
+  });
+  Object.defineProperty(node, 'fallback', {
+    get(): boolean {
+      assertNotDisposed();
+      return runtime.fallback as boolean;
+    },
+    enumerable: true,
+  });
+  return Object.freeze(node);
+}
 
-//   // One stable accessor object per flag key, created lazily on first call.
-//   private accessorCache: Partial<{
-//     [K in keyof S]: Accessor<S[K]>;
-//   }> = {};
+function buildVariantAccessor<T extends string | number>(
+  assertNotDisposed: () => void,
+  runtime: RuntimeFlag<FlagDefinition & { type: 'STRING' | 'NUMBER' }>,
+): Readonly<VariantNode<T>> {
+  const node = {} as VariantNode<T>;
+  Object.defineProperty(node, 'enabled', {
+    get(): boolean {
+      assertNotDisposed();
+      return runtime.enabled;
+    },
+    enumerable: true,
+  });
+  Object.defineProperty(node, 'value', {
+    get(): T {
+      assertNotDisposed();
+      return (runtime.enabled ? runtime.value : runtime.fallback) as T;
+    },
+    enumerable: true,
+  });
+  Object.defineProperty(node, 'fallback', {
+    get(): T {
+      assertNotDisposed();
+      return runtime.fallback as T;
+    },
+    enumerable: true,
+  });
+  Object.defineProperty(node, 'rollout', {
+    get(): number {
+      assertNotDisposed();
+      return runtime.rollout ?? 100;
+    },
+    enumerable: true,
+  });
+  return Object.freeze(node);
+}
+interface ClientOptions<S extends FlagMap> {
+  schema: S;
+  seedingSchema?: SeedMap<S>; // ✅ now linked to S
+  apiKey?: string;
+}
 
-//   constructor(schema: S) {
-//     this.store = {} as {
-//       [K in keyof S]: RuntimeFlag<S[K]>;
-//     };
+export class VoidClient<S extends FlagMap> {
+  #disposed = false;
 
-//     for (const key in schema) {
-//       const def = schema[key];
+  private store: {
+    [K in keyof S]: RuntimeFlag<S[K]>;
+  };
 
-//       this.store[key] = {
-//         type: def.type,
-//         value: def.default as InferFlagValue<typeof def>,
-//         fallback: def.default as InferFlagValue<typeof def>,
-//         enabled: true,
-//       };
-//     }
-//   }
+  private accessorCache: Partial<{
+    [K in keyof S]: Accessor<S[K]>;
+  }> = Object.create(null);
 
-//   /* --------------------------------------------
-//      Typed Flag Access (No rollout on BOOLEAN)
-//   -------------------------------------------- */
+  public readonly flags: {
+    [K in keyof S]: Accessor<S[K]>;
+  };
 
-//   private _get<K extends keyof S>(key: K): NodeFor<S[K]> {
-//     const f = this.store[key];
+  constructor(opts: ClientOptions<S>) {
+    type Store = { [K in keyof S]: RuntimeFlag<S[K]> };
+    this.store = Object.create(null) as Store;
 
-//     if (f.type === 'KILLSWITCH') {
-//       return { enabled: f.enabled } as NodeFor<S[K]>;
-//     }
+    for (const key in opts.schema) {
+      const def = opts.schema[key];
 
-//     if (f.type === 'BOOLEAN') {
-//       return {
-//         value: f.enabled ? f.value : f.fallback,
-//         fallback: f.fallback,
-//         enabled: f.enabled,
-//       } as NodeFor<S[K]>;
-//     }
+      this.store[key] = {
+        type: def.type,
+        value: def.fallback as InferFlagValue<typeof def>,
+        fallback: def.fallback as InferFlagValue<typeof def>,
+        enabled: true,
+      };
+    }
+    if (opts.seedingSchema) {
+      this.seed(opts.seedingSchema);
+    }
 
-//     return {
-//       value: f.enabled ? f.value : f.fallback,
-//       fallback: f.fallback,
-//       enabled: f.enabled,
-//       rollout: f.rollout ?? 100,
-//     } as NodeFor<S[K]>;
-//   }
+    if (Object.keys(opts.schema).length < EAGER_ACCESSOR_THRESHOLD) {
+      this.flags = this.#buildEagerFlags(opts.schema);
+    } else {
+      this.flags = this.#buildLazyFlagsObject(opts.schema);
+    }
+  }
+  /* --------------------------------------------
+   seed()
 
-//   enabled<K extends keyof S>(keys: K[]): boolean {
-//     return keys.every((k) => this.store[k].enabled);
-//   }
+   Bulk-overrides flag values before the client
+   is used in earnest — intended to be called once
+   at startup with a local seed file so consumers
+   can develop/test without hitting your server.
 
-//   get<K extends keyof S>(key: K): InferFlagValue<S[K]> {
-//     const f = this.store[key];
+   Accepts a partial map of flag keys → partial
+   RuntimeFlag overrides. Unknown keys throw to
+   catch typos in seed files early.
 
-//     if (!f) {
-//       throw new VoidFlagError(`Flag "${String(key)}" does not exist`);
-//     }
+   Returns `this` for chaining:
+     const vf = new VoidClient(schema).seed(localSeeds);
 
-//     // killswitch = enabled itself
-//     if (f.type === 'KILLSWITCH') {
-//       return f.enabled as InferFlagValue<S[K]>;
-//     }
+   In production, call seed() before any network
+   hydration — server values will overwrite seeds
+   via hydrate() as normal.
+-------------------------------------------- */
+  seed(overrides: SeedMap<S>): this {
+    this.#assertNotDisposed();
 
-//     return (f.enabled ? f.value : f.fallback) as InferFlagValue<S[K]>;
-//   }
+    for (const rawKey in overrides) {
+      this.#assertSafeKey(rawKey);
 
-//   // accessor()
+      const key = rawKey as keyof S;
+      this.#assertKeyExists(key);
 
-//   //    Returns a stable object whose getters read
-//   //    live from the store on every property access.
-//   //    Subsequent calls with the same key return the
-//   //    exact same object reference — no new allocation.
+      const patch = overrides[key];
+      if (!patch) continue;
 
-//   //    Usage:
-//   //      const flag = client.accessor('dark-mode');
-//   //      flag.enabled  // always current
-//   //      flag.value    // always current
-//   /**
-//    * Returns a stable live reference to the flag.
-//    * The same object is returned on every call — reads are always current.
-//    * For a one-time snapshot, use snapshot() instead.
-//    */
-//   flag<K extends keyof S>(key: K): Accessor<S[K]> {
-//     if (this.accessorCache[key] !== undefined) {
-//       return this.accessorCache[key]!;
-//     }
+      const runtime = this.store[key];
 
-//     const node = {} as NodeFor<S[K]>;
+      // --- value type runtime guard ---
+      if (patch.value !== undefined) {
+        if (runtime.type === 'BOOLEAN' && typeof patch.value !== 'boolean') {
+          throw new VoidFlagError(`seed(): "${String(key)}" expects boolean`);
+        }
 
-//     // ✅ Capture runtime object ONCE
-//     const runtime = this.store[key];
-//     if (!runtime) {
-//       throw new VoidFlagError(`Flag "${String(key)}" does not exist`);
-//     }
-//     const flagType = runtime.type;
+        if (runtime.type === 'STRING' && typeof patch.value !== 'string') {
+          throw new VoidFlagError(`seed(): "${String(key)}" expects string`);
+        }
 
-//     Object.defineProperty(node, 'enabled', {
-//       get(): boolean {
-//         return runtime.enabled;
-//       },
-//       enumerable: true,
-//     });
+        if (runtime.type === 'NUMBER' && typeof patch.value !== 'number') {
+          throw new VoidFlagError(`seed(): "${String(key)}" expects number`);
+        }
+      }
 
-//     if (flagType !== 'KILLSWITCH') {
-//       Object.defineProperty(node, 'value', {
-//         get() {
-//           return runtime.enabled ? runtime.value : runtime.fallback;
-//         },
-//         enumerable: true,
-//       });
+      // --- rollout guard ---
+      if ('rollout' in patch && patch.rollout !== undefined) {
+        if (runtime.type === 'BOOLEAN') {
+          throw new VoidFlagError(
+            `seed(): "${String(key)}" is BOOLEAN and cannot have rollout`,
+          );
+        }
 
-//       Object.defineProperty(node, 'fallback', {
-//         get() {
-//           return runtime.fallback;
-//         },
-//         enumerable: true,
-//       });
-//     }
+        if (patch.rollout < 0 || patch.rollout > 100) {
+          throw new VoidFlagError(
+            `seed(): "${String(key)}" rollout must be between 0–100`,
+          );
+        }
+      }
 
-//     if (flagType !== 'KILLSWITCH' && flagType !== 'BOOLEAN') {
-//       Object.defineProperty(node, 'rollout', {
-//         get() {
-//           return runtime.rollout ?? 100;
-//         },
-//         enumerable: true,
-//       });
-//     }
+      Object.assign(runtime, patch);
+    }
 
-//     Object.freeze(node);
+    return this;
+  }
 
-//     this.accessorCache[key] = node as Accessor<S[K]>;
-//     return node as Accessor<S[K]>;
-//   }
+  #assertSafeKey(key: string) {
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') {
+      throw new VoidFlagError(`Invalid flag key "${key}"`);
+    }
+  }
 
-//   private hydrate<K extends keyof S>(key: K, data: Partial<RuntimeFlag<S[K]>>) {
-//     Object.assign(this.store[key], data);
-//   }
+  #buildEagerFlags(schema: S): Readonly<{ [K in keyof S]: Accessor<S[K]> }> {
+    const flags = {} as { [K in keyof S]: Accessor<S[K]> };
 
-//   snapshot<K extends keyof S>(key: K): Snapshot<S[K]> {
-//     return Object.freeze({ ...this._get(key) });
-//   }
-//   debug(): Record<keyof S, Snapshot<S[keyof S]>> {
-//     return Object.fromEntries(
-//       Object.keys(this.store).map((k) => [k, this.snapshot(k as keyof S)]),
-//     ) as Record<keyof S, Snapshot<S[keyof S]>>;
-//   }
-//   private clearCache(key?: keyof S) {
-//     if (key) delete this.accessorCache[key];
-//     else this.accessorCache = {};
-//   }
+    for (const key in schema) {
+      const accessor = this.#buildAccessor(key);
+      this.accessorCache[key] = accessor;
+      flags[key] = accessor;
+    }
 
-//   dispose() {
-//     this.clearCache();
-//     this.store = {} as {
-//       [K in keyof S]: RuntimeFlag<S[K]>;
-//     };
-//   }
-// }
+    return Object.freeze(flags);
+  }
+
+  #buildLazyFlagsObject(schema: S) {
+    const flags = {} as { [K in keyof S]: Accessor<S[K]> };
+
+    for (const key in schema) {
+      Object.defineProperty(flags, key, {
+        get: () => this.flag(key),
+        enumerable: true,
+      });
+    }
+
+    return Object.seal(flags);
+  }
+
+  #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
+    const runtime = this.store[key];
+    const assert = this.#assertNotDisposed.bind(this);
+
+    switch (runtime.type) {
+      case 'BOOLEAN':
+        return buildBooleanAccessor(
+          assert,
+          runtime as RuntimeFlag<FlagDefinition & { type: 'BOOLEAN' }>,
+        ) as Accessor<S[K]>;
+      default:
+        return buildVariantAccessor(
+          assert,
+          runtime as RuntimeFlag<FlagDefinition & { type: 'STRING' | 'NUMBER' }>,
+        ) as Accessor<S[K]>;
+    }
+  }
+  /* --------------------------------------------
+     Disposed Guard
+  -------------------------------------------- */
+
+  #assertNotDisposed() {
+    if (this.#disposed) {
+      throw new VoidFlagError(
+        'VoidClient has been disposed. Create a new instance to continue using flags.',
+      );
+    }
+  }
+
+  /* --------------------------------------------
+     Typed Flag Access (No rollout on BOOLEAN)
+  -------------------------------------------- */
+
+  /* --------------------------------------------
+     enabled() / allEnabled()
+
+     enabled()    → single key, mirrors the natural SDK ergonomic.
+     allEnabled() → convenience for "are all of these on?" gate checks.
+
+     Both check store[k].enabled directly — consistent with get()
+     for all types including KILLSWITCH.
+  -------------------------------------------- */
+
+  enabled<K extends keyof S>(key: K): boolean {
+    this.#assertNotDisposed();
+    this.#assertKeyExists(key);
+    return this.store[key].enabled;
+  }
+
+  allEnabled(keys: (keyof S)[]): boolean {
+    this.#assertNotDisposed();
+    return keys.every((k) => this.enabled(k));
+  }
+
+  /* --------------------------------------------
+     get()
+
+     Returns the resolved scalar value for a flag.
+     - KILLSWITCH → returns enabled (boolean)
+     - Others     → returns value if enabled, fallback otherwise
+  -------------------------------------------- */
+
+  /**
+   * Returns the resolved scalar value of a flag.
+   *
+   * - enabled  → value
+   * - disabled → fallback
+   *
+   * @example
+   * ```ts
+   * const size = vf.get("fontSize");
+   * ```
+   */
+  get<K extends keyof S>(key: K): InferFlagValue<S[K]> {
+    this.#assertNotDisposed();
+    this.#assertKeyExists(key);
+    const f = this.store[key];
+    return (f.enabled ? f.value : f.fallback) as InferFlagValue<S[K]>;
+  }
+
+  /* --------------------------------------------
+     flag()
+
+     Returns a stable live reference to the flag.
+     The same object is returned on every call — reads are always current.
+     For a one-time snapshot, use snapshot() instead.
+  -------------------------------------------- */
+  /**
+   * Returns a stable live accessor for a flag.
+   *
+   * This object is cached and does not allocate on repeated calls.
+   *
+   * @example
+   * ```ts
+   * const flag = vf.flag("themeColor");
+   * console.log(flag.value);
+   * console.log(flag.enabled);
+   * ```
+   */
+  flag<K extends keyof S>(key: K): Accessor<S[K]> {
+    this.#assertNotDisposed();
+    this.#assertKeyExists(key);
+    if (!this.accessorCache[key]) {
+      this.accessorCache[key] = this.#buildAccessor(key);
+    }
+    return this.accessorCache[key]!;
+  }
+  #assertKeyExists(key: keyof S) {
+    if (!this.store[key]) {
+      throw new VoidFlagError(`Flag "${String(key)}" does not exist`);
+    }
+  }
+  /* --------------------------------------------
+     isRolledOutFor()
+
+     Evaluates whether a given user ID falls within
+     the flag's rollout percentage using a stable
+     deterministic hash. Non-variant flags (KILLSWITCH,
+     BOOLEAN) are not subject to rollout — returns
+     enabled state directly.
+  -------------------------------------------- */
+  isRolledOutFor<K extends RolloutCapableKeys<S>>(key: K, userId: string): boolean {
+    this.#assertNotDisposed();
+    this.#assertKeyExists(key);
+    const f = this.store[key];
+
+    if (!f.enabled) return false;
+
+    const rollout = f.rollout ?? 100;
+    if (rollout >= 100) return true;
+    if (rollout <= 0) return false;
+
+    const bucket = stableHash(`${String(key)}:${userId}`) % 100;
+    return bucket < rollout;
+  }
+
+  /* --------------------------------------------
+     hydrate() — internal store mutation.
+  -------------------------------------------- */
+
+  hydrate<K extends keyof S>(key: K, data: Partial<RuntimeFlag<S[K]>>) {
+    this.#assertNotDisposed();
+
+    // 🚨 Prototype pollution guard
+
+    this.#assertSafeKey(String(key));
+    this.#assertKeyExists(key);
+
+    // Safe merge
+    Object.assign(this.store[key], data);
+  }
+
+  /* --------------------------------------------
+     snapshot() / debug()
+  -------------------------------------------- */
+
+  snapshot<K extends keyof S>(key: K): Snapshot<S[K]> {
+    this.#assertNotDisposed();
+    const f = this.store[key];
+    if (!f) throw new VoidFlagError(`Flag "${String(key)}" does not exist`);
+    const base = {
+      enabled: f.enabled,
+      value: f.value,
+      fallback: f.fallback,
+    };
+    return Object.freeze(
+      f.type === 'BOOLEAN' ? base : { ...base, rollout: f.rollout ?? 100 },
+    ) as Snapshot<S[K]>;
+  }
+
+  debugSnapshots(): { [K in keyof S]: Snapshot<S[K]> } {
+    this.#assertNotDisposed();
+    return Object.fromEntries(
+      Object.keys(this.store).map((k) => [k, this.snapshot(k as keyof S)]),
+    ) as {
+      [K in keyof S]: Snapshot<S[K]>;
+    };
+  }
+
+  dispose() {
+    if (this.#disposed) return;
+    this.#disposed = true;
+  }
+}
+
+function stableHash(input: string): number {
+  //djb2
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = (Math.imul(hash, 33) ^ input.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
