@@ -1,4 +1,4 @@
-import { FlagDefinition, FlagMap } from '@voidflag/schema';
+import { FlagDefinition, FlagMap } from './schema.js';
 
 export class VoidFlagError extends Error {
   constructor(message: string) {
@@ -93,9 +93,7 @@ function buildBooleanAccessor(
   Object.defineProperty(node, 'value', {
     get(): boolean {
       assertNotDisposed();
-      return runtime.enabled
-        ? (runtime.value as boolean)
-        : (runtime.fallback as boolean);
+      return runtime.enabled ? (runtime.value as boolean) : (runtime.fallback as boolean);
     },
     enumerable: true,
   });
@@ -326,9 +324,7 @@ export class VoidClient<S extends FlagMap> {
       default:
         accessor = buildVariantAccessor(
           assert,
-          runtime as RuntimeFlag<
-            FlagDefinition & { type: 'STRING' | 'NUMBER' }
-          >,
+          runtime as RuntimeFlag<FlagDefinition & { type: 'STRING' | 'NUMBER' }>,
         ) as Accessor<S[K]>;
         break;
     }
@@ -350,10 +346,7 @@ export class VoidClient<S extends FlagMap> {
      BOOLEAN) are not subject to rollout — returns
      enabled state directly.
   -------------------------------------------- */
-  isRolledOutFor<K extends RolloutCapableKeys<S>>(
-    key: K,
-    userId: string,
-  ): boolean {
+  isRolledOutFor<K extends RolloutCapableKeys<S>>(key: K, userId: string): boolean {
     this.#assertNotDisposed();
     this.#assertKeyExists(key);
     const f = this.store[key];
@@ -383,10 +376,7 @@ export class VoidClient<S extends FlagMap> {
        unsub();
   -------------------------------------------- */
 
-  subscribe<K extends keyof S>(
-    key: K,
-    callback: SubscriberCallback<S[K]>,
-  ): () => void {
+  subscribe<K extends keyof S>(key: K, callback: SubscriberCallback<S[K]>): () => void {
     this.#assertNotDisposed();
 
     if (!this.subscribers[key]) {
@@ -409,9 +399,7 @@ export class VoidClient<S extends FlagMap> {
   -------------------------------------------- */
 
   private notify<K extends keyof S>(key: K, previous: Snapshot<S[K]>) {
-    const subs = this.subscribers[key] as
-      | Set<SubscriberCallback<S[K]>>
-      | undefined;
+    const subs = this.subscribers[key] as Set<SubscriberCallback<S[K]>> | undefined;
 
     if (!subs || subs.size === 0) return;
 
@@ -502,10 +490,7 @@ function stableHash(input: string): number {
  * Snapshots have at most 4 primitive keys (enabled, value, fallback, rollout)
  * so a full key walk is cheaper and safer than any deep-equal library.
  */
-function snapshotsEqual(
-  a: Record<string, unknown>,
-  b: Record<string, unknown>,
-): boolean {
+function snapshotsEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
   const aKeys = Object.keys(a);
   if (aKeys.length !== Object.keys(b).length) return false;
   for (const k of aKeys) {

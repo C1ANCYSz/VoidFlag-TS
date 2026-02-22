@@ -4,7 +4,7 @@ import {
   FlagMap,
   NumberFlag,
   StringFlag,
-} from '@voidflag/schema';
+} from './schema.js';
 const EAGER_ACCESSOR_THRESHOLD = 2;
 
 export class VoidFlagError extends Error {
