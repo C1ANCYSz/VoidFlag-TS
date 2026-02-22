@@ -9,4 +9,5 @@ export {
   NumberFlag,
   StringFlag,
 } from './schema.js';
-export { VoidFlagError, VoidClient } from './sdk.js';
+export { VoidClient } from './sdk.js';
+export { VoidFlagError } from './VoidFlagError.js';

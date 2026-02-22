@@ -1,4 +1,4 @@
-import { FlagDefinition, FlagMap } from './schema.js';
+import { FlagDefinition, FlagMap } from '../schema.js';
 
 export class VoidFlagError extends Error {
   constructor(message: string) {

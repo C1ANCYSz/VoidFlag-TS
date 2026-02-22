@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@types/node": "^25.2.3",
-    "@voidflag/schema": "workspace:*",
     "eventsource": "^4.1.0",
     "kebab-case": "^2.0.2"
   },

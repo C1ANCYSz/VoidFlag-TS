@@ -1,4 +1,5 @@
 import kebabCase from 'kebab-case';
+import { VoidFlagError } from './VoidFlagError.js';
 /* --------------------------------------------
    Flag Types (Schema Only)
 -------------------------------------------- */
@@ -30,10 +31,10 @@ class FlagBuilder<T extends FlagDefinition> {
   constructor(protected config: Omit<T, 'fallback'>) {}
 
   fallback(value: T['fallback']): T {
-    return {
-      ...this.config,
-      fallback: value,
-    } as T;
+    if (value === null || value === undefined) {
+      throw new VoidFlagError(`fallback value must not be null or undefined`);
+    }
+    return { ...this.config, fallback: value } as T;
   }
   // rules(segments: string[]): this {
   //   this.config = {
@@ -87,15 +88,33 @@ export function number() {
 -------------------------------------------- */
 
 export function defineFlags<T extends FlagMap>(flags: T) {
-  const result = {} as {
-    [K in keyof T]: T[K] & { key: string };
-  };
+  const result = {} as { [K in keyof T]: T[K] & { key: string } };
+
+  for (const dangerous of ['__proto__', 'prototype', 'constructor']) {
+    if (Object.prototype.hasOwnProperty.call(flags, dangerous)) {
+      throw new VoidFlagError(`Invalid flag key "${dangerous}"`);
+    }
+  }
 
   for (const name in flags) {
-    result[name] = {
-      ...flags[name],
-      key: kebabCase(name),
-    };
+    if (!Object.prototype.hasOwnProperty.call(flags, name)) continue;
+    assertSafeKey(name); // throws VoidFlagError for valueOf etc.
+    result[name] = { ...flags[name], key: kebabCase(name) };
   }
+
   return result;
+}
+
+const RESERVED_KEYS = new Set([
+  '__proto__',
+  'prototype',
+  'constructor',
+  'valueOf',
+  'toString',
+]);
+
+function assertSafeKey(key: string) {
+  if (RESERVED_KEYS.has(key)) {
+    throw new VoidFlagError(`Invalid flag key "${key}"`);
+  }
 }
