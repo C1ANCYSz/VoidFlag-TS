@@ -8,9 +8,8 @@ import {
 
 import { PollingTransport, SSETransport } from './transport.js';
 import { VoidFlagError } from './VoidFlagError.js';
-const ALLOWED_PATCH_KEYS = new Set(['value', 'enabled', 'rollout']);
 
-const EAGER_ACCESSOR_THRESHOLD = 2;
+const ALLOWED_PATCH_KEYS = new Set(['value', 'enabled', 'rollout']);
 
 const BASE_URL = 'http://localhost:3000';
 
@@ -122,6 +121,7 @@ function buildAccessor<T extends boolean | string | number>(
 
   return Object.freeze(node);
 }
+
 type Store<S extends FlagMap> = { [K in keyof S]: RuntimeFlag<S[K]> };
 
 /* --------------------------------------------
@@ -131,6 +131,7 @@ interface Transport {
   start(): void;
   stop(): void;
 }
+
 export class VoidClient<S extends FlagMap> {
   public readonly flags: { [K in keyof S]: Accessor<S[K]> };
   #disposed = false;
@@ -150,10 +151,7 @@ export class VoidClient<S extends FlagMap> {
       this.applyState(opts.applyStateSchema);
     }
 
-    this.flags =
-      Object.keys(opts.schema).length < EAGER_ACCESSOR_THRESHOLD
-        ? this.#buildEagerFlags(opts.schema)
-        : this.#buildLazyFlagsObject(opts.schema);
+    this.flags = this.#buildLazyFlagsObject(opts.schema);
   }
 
   #applySchema(schema: S) {
@@ -168,21 +166,26 @@ export class VoidClient<S extends FlagMap> {
       });
     }
   }
-
   #validateRollout(value: number, key: string) {
-    if (!Number.isInteger(value) || value < 0 || value > 100) {
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      value > 100
+    ) {
       throw new VoidFlagError(
-        `applyState(): "${key}" rollout must be an integer between 0 and 100`,
+        `applyState(): "${key}" rollout must be a number between 0 and 100`,
       );
     }
+    return parseFloat(value.toFixed(2));
   }
 
   #validatePatch(key: string, patch: applyPatch): SafeUpdate {
     const runtime = this.store[key as keyof S];
     const safeUpdate: SafeUpdate = {};
-    for (const key of Object.keys(patch)) {
-      if (!ALLOWED_PATCH_KEYS.has(key)) {
-        throw new VoidFlagError(`Unknown patch field "${key}"`);
+    for (const field of Object.keys(patch)) {
+      if (!ALLOWED_PATCH_KEYS.has(field)) {
+        throw new VoidFlagError(`Unknown patch field "${field}"`);
       }
     }
     if (patch.value !== undefined) {
@@ -213,8 +216,7 @@ export class VoidClient<S extends FlagMap> {
     }
 
     if (patch.rollout !== undefined) {
-      this.#validateRollout(patch.rollout, key);
-      safeUpdate.rollout = patch.rollout;
+      safeUpdate.rollout = this.#validateRollout(patch.rollout, key); // ← use return value
     }
 
     return safeUpdate;
@@ -262,8 +264,8 @@ export class VoidClient<S extends FlagMap> {
   }
 
   /* --------------------------------------------
-   applyState()
--------------------------------------------- */
+     applyState()
+  -------------------------------------------- */
   applyState(overrides: StateMap<S>): this {
     this.#assertNotDisposed();
 
@@ -304,14 +306,13 @@ export class VoidClient<S extends FlagMap> {
   }
 
   /* --------------------------------------------
-     get() — resolved scalar value
+     get() — resolved a primitive scalar value
   -------------------------------------------- */
   get<K extends keyof S>(key: K): InferFlagValue<S[K]> {
     this.#assertNotDisposed();
     this.#assertSafeKey(String(key));
     this.#assertKeyExists(key);
     const f = this.store[key];
-
     return (f.enabled ? f.value : f.fallback) as InferFlagValue<S[K]>;
   }
 
@@ -350,58 +351,16 @@ export class VoidClient<S extends FlagMap> {
     this.#assertSafeKey(String(key));
     this.#assertKeyExists(key);
 
-    const ALLOWED = new Set(['value', 'enabled', 'rollout']);
     for (const k of Object.keys(data)) {
-      if (!ALLOWED.has(k)) {
+      if (!ALLOWED_PATCH_KEYS.has(k)) {
         throw new VoidFlagError(`Unknown patch field "${k}"`);
       }
     }
 
-    const validated = this.#validateHydratePatch(String(key), data);
+    const validated = this.#validatePatch(String(key), data);
     Object.assign(this.store[key], validated);
   }
-  #validateHydratePatch(key: string, patch: applyPatch): SafeUpdate {
-    const runtime = this.store[key as keyof S];
-    const safeUpdate: SafeUpdate = {};
 
-    if (patch.value !== undefined) {
-      switch (runtime.type) {
-        case 'BOOLEAN':
-          if (typeof patch.value !== 'boolean')
-            throw new VoidFlagError(`"${key}" expects boolean`);
-          break;
-        case 'STRING':
-          if (typeof patch.value !== 'string')
-            throw new VoidFlagError(`"${key}" expects string`);
-          break;
-        case 'NUMBER':
-          if (typeof patch.value !== 'number' || !Number.isFinite(patch.value))
-            throw new VoidFlagError(`"${key}" expects a finite number`);
-          break;
-      }
-      safeUpdate.value = patch.value;
-    }
-
-    if (patch.enabled !== undefined) {
-      if (typeof patch.enabled !== 'boolean')
-        throw new VoidFlagError(`"${key}" enabled must be a boolean`);
-      safeUpdate.enabled = patch.enabled;
-    }
-
-    if (patch.rollout !== undefined) {
-      if (
-        typeof patch.rollout !== 'number' ||
-        !Number.isInteger(patch.rollout) ||
-        patch.rollout < 0 ||
-        patch.rollout > 100
-      ) {
-        throw new VoidFlagError(`"${key}" rollout must be an integer between 0 and 100`);
-      }
-      safeUpdate.rollout = patch.rollout;
-    }
-
-    return safeUpdate;
-  }
   /* --------------------------------------------
      snapshot() / debugSnapshots()
   -------------------------------------------- */
@@ -429,16 +388,6 @@ export class VoidClient<S extends FlagMap> {
      Private Helpers
   -------------------------------------------- */
 
-  #buildEagerFlags(schema: S): Readonly<{ [K in keyof S]: Accessor<S[K]> }> {
-    const flags = {} as { [K in keyof S]: Accessor<S[K]> };
-    for (const key in schema) {
-      const accessor = this.#buildAccessor(key);
-      this.accessorCache[key] = accessor;
-      flags[key] = accessor;
-    }
-    return Object.freeze(flags);
-  }
-
   #buildLazyFlagsObject(schema: S) {
     const flags = {} as { [K in keyof S]: Accessor<S[K]> };
     for (const key in schema) {
@@ -456,9 +405,11 @@ export class VoidClient<S extends FlagMap> {
       this.store[key] as RuntimeFlag<FlagDefinition>,
     ) as Accessor<S[K]>;
   }
+
   isConnected(): boolean {
     return this.connected;
   }
+
   #assertNotDisposed() {
     if (this.#disposed) {
       throw new VoidFlagError(
@@ -487,6 +438,7 @@ export class VoidClient<S extends FlagMap> {
 }
 
 function stableHash(input: string): number {
+  // djb2
   let hash = 5381;
   for (let i = 0; i < input.length; i++) {
     hash = (Math.imul(hash, 33) ^ input.charCodeAt(i)) >>> 0;

@@ -98,7 +98,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
       this.retryCount = 0; // reset backoff on successful message
       const payload = JSON.parse(e.data);
       for (const key in payload.flags) {
-        this.client.hydrate(key as any, payload.flags[key]);
+        this.client.hydrate(key as keyof S, payload.flags[key]);
       }
     });
 
@@ -112,7 +112,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
 
       const exp = Math.min(BASE_RETRY_MS * 2 ** (this.retryCount - 1), MAX_RETRY_MS);
 
-      const delay = Math.random() * exp;
+      const delay = exp * 0.5 + Math.random() * exp * 0.5;
       setTimeout(() => this.connect(), delay);
     };
   }
