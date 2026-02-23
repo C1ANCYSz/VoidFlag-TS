@@ -30,12 +30,6 @@ export type FlagMap = Record<string, FlagDefinition>;
 class FlagBuilder<T extends FlagDefinition> {
   constructor(protected config: Omit<T, 'fallback'>) {}
 
-  fallback(value: T['fallback']): T {
-    if (value === null || value === undefined) {
-      throw new VoidFlagError(`fallback value must not be null or undefined`);
-    }
-    return { ...this.config, fallback: value } as T;
-  }
   // rules(segments: string[]): this {
   //   this.config = {
   //     ...this.config,
@@ -53,17 +47,44 @@ class BooleanBuilder extends FlagBuilder<BooleanFlag> {
   constructor() {
     super({ type: 'BOOLEAN' });
   }
+
+  fallback(value: boolean): BooleanFlag {
+    if (typeof value !== 'boolean') {
+      throw new VoidFlagError(
+        `BOOLEAN flag fallback must be a boolean, got ${typeof value}`,
+      );
+    }
+    return { ...this.config, fallback: value };
+  }
 }
 
 class StringBuilder extends FlagBuilder<StringFlag> {
   constructor() {
     super({ type: 'STRING' });
   }
+
+  fallback(value: string): StringFlag {
+    if (typeof value !== 'string') {
+      throw new VoidFlagError(
+        `STRING flag fallback must be a string, got ${typeof value}`,
+      );
+    }
+    return { ...this.config, fallback: value };
+  }
 }
 
 class NumberBuilder extends FlagBuilder<NumberFlag> {
   constructor() {
     super({ type: 'NUMBER' });
+  }
+
+  fallback(value: number): NumberFlag {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+      throw new VoidFlagError(
+        `NUMBER flag fallback must be a finite number, got ${typeof value}`,
+      );
+    }
+    return { ...this.config, fallback: value };
   }
 }
 
@@ -111,6 +132,10 @@ const RESERVED_KEYS = new Set([
   'constructor',
   'valueOf',
   'toString',
+  'hasOwnProperty',
+  'isPrototypeOf',
+  'propertyIsEnumerable',
+  'toLocaleString',
 ]);
 
 function assertSafeKey(key: string) {
