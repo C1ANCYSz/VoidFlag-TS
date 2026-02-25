@@ -120,7 +120,7 @@ export function defineFlags<T extends FlagMap>(flags: T) {
   for (const name in flags) {
     if (!Object.prototype.hasOwnProperty.call(flags, name)) continue;
     assertSafeKey(name); // throws VoidFlagError for valueOf etc.
-    result[name] = { ...flags[name], key: kebabCase(name) };
+    result[name] = { ...flags[name], key: name };
   }
 
   return result;
