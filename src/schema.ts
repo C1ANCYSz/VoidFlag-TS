@@ -1,5 +1,6 @@
 import kebabCase from 'kebab-case';
 import { VoidFlagError } from './VoidFlagError.js';
+import { RESERVED_KEYS } from '@voidflag/shared';
 /* --------------------------------------------
    Flag Types (Schema Only)
 -------------------------------------------- */
@@ -125,18 +126,6 @@ export function defineFlags<T extends FlagMap>(flags: T) {
 
   return result;
 }
-
-const RESERVED_KEYS = new Set([
-  '__proto__',
-  'prototype',
-  'constructor',
-  'valueOf',
-  'toString',
-  'hasOwnProperty',
-  'isPrototypeOf',
-  'propertyIsEnumerable',
-  'toLocaleString',
-]);
 
 function assertSafeKey(key: string) {
   if (RESERVED_KEYS.has(key)) {

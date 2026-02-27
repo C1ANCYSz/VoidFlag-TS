@@ -14,12 +14,17 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest --watch --reporter verbose --logHeapUsage"
   },
   "dependencies": {
     "@types/node": "^25.2.3",
+    "@voidflag/shared": "workspace:*",
     "eventsource": "^4.1.0",
     "kebab-case": "^2.0.2"
   },
-  "packageManager": "pnpm@10.28.2"
+  "packageManager": "pnpm@10.28.2",
+  "devDependencies": {
+    "vitest": "^4.0.18"
+  }
 }
