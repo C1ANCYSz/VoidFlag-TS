@@ -82,7 +82,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
     let res: Response;
 
     try {
-      res = await fetch(`http://localhost:3000/v1/flags`, {
+      res = await fetch(`http://localhost:3000/api/flags`, {
         headers: { 'X-API-Key': this.apiKey },
         signal: this.abortController.signal,
       });

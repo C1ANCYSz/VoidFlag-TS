@@ -81,16 +81,12 @@ interface ClientOptions<S extends FlagMap> {
 
 // ─── Connect response shapes ──────────────────────────────────────────────────
 
-interface ConnectResponseBase {
-  flags: Record<string, Patch>;
-}
-
-interface PollingConnectResponse extends ConnectResponseBase {
+interface PollingConnectResponse {
   transport: 'polling';
   pollInterval?: number;
 }
 
-interface SSEConnectResponse extends ConnectResponseBase {
+interface SSEConnectResponse {
   transport: 'sse';
   streamUrl: string;
 }
@@ -284,7 +280,6 @@ export class VoidClient<S extends FlagMap> {
 
   async connect(): Promise<void> {
     this.#assertNotDisposed();
-
     if (!this.apiKey) return;
 
     const res = await fetch(`${BASE_URL}/connect`, {
@@ -298,26 +293,13 @@ export class VoidClient<S extends FlagMap> {
 
     const data = (await res.json()) as ConnectResponse;
 
-    // Tear down any previously active transport before replacing it.
-    // Without this, reconnect() would orphan a still-running transport.
     this.transport?.stop();
     this.transport = undefined;
     this.connected = false;
 
-    // Hydrate the initial snapshot delivered with the connect response.
-    for (const key in data.flags) {
-      this.hydrate(key as keyof S, data.flags[key]);
-    }
-
-    // Build and start the transport the server requested.
-    // buildTransport() is exhaustive over ConnectResponse — an unrecognised
-    // transport variant from the server will throw rather than silently no-op.
     this.transport = buildTransport(this, data);
     await this.transport.start();
 
-    // Only mark connected after the await resolves cleanly. Previously this
-    // was set before start() resolved, so a throwing async start() left the
-    // client in an inconsistent connected=true state.
     this.connected = true;
   }
 
