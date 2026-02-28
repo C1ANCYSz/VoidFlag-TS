@@ -8,8 +8,10 @@ interface Transport {
   stop(): void;
 }
 
-type FlagPayload<S extends FlagMap> = Record<string, Partial<RuntimeFlag<S[keyof S]>>>;
-
+type FlagPayload<S extends FlagMap> = {
+  flags: Record<string, Partial<RuntimeFlag<S[keyof S]>>>;
+  version: number;
+};
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export class FetchFlagsError extends Error {
@@ -51,6 +53,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   private timer?: ReturnType<typeof setInterval>;
   private abortController?: AbortController;
   private failCount = 0;
+  private version = 0; // 0 = fresh client, triggers full fetch
 
   constructor(
     private readonly client: VoidClient<S>,
@@ -82,7 +85,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
     let res: Response;
 
     try {
-      res = await fetch(`http://localhost:3000/api/flags`, {
+      res = await fetch(`http://localhost:3000/api/flags?v=${this.version}`, {
         headers: { 'X-API-Key': this.apiKey },
         signal: this.abortController.signal,
       });
@@ -96,7 +99,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
       this.options.onError?.(wrapped);
       return;
     }
-
+    if (res.status === 204) return;
     if (!res.ok) {
       this.failCount++;
       const wrapped = new FetchFlagsError(
@@ -109,11 +112,12 @@ export class PollingTransport<S extends FlagMap> implements Transport {
 
     this.failCount = 0;
 
-    const data = (await res.json()) as { flags: FlagPayload<S> };
+    const data = (await res.json()) as FlagPayload<S>;
+    this.version = data.version;
     this.hydrateFlags(data.flags);
   }
 
-  private hydrateFlags(flags: FlagPayload<S>): void {
+  private hydrateFlags(flags: FlagPayload<S>['flags']): void {
     for (const key in flags) {
       this.client.hydrate(key as keyof S, flags[key]);
     }
@@ -173,7 +177,8 @@ export class SSETransport<S extends FlagMap> implements Transport {
 
     this.source.addEventListener('update', (e: MessageEvent) => {
       this.retryCount = 0; // reset backoff on successful message
-      const payload = JSON.parse(e.data as string) as { flags: FlagPayload<S> };
+
+      const payload = JSON.parse(e.data as string) as FlagPayload<S>;
       for (const key in payload.flags) {
         this.client.hydrate(key as keyof S, payload.flags[key]);
       }
