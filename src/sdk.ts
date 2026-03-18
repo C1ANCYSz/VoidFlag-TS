@@ -5,15 +5,16 @@ import {
   NumberFlag,
   StringFlag,
 } from './schema.js';
-import { RESERVED_KEYS } from '@voidflag/shared';
+import {
+  readDevPort,
+  RESERVED_KEYS,
+  VOIDFLAG_DEV_PORT,
+  VOIDFLAG_API_URL,
+} from '@voidflag/shared';
 import { PollingTransport, SSETransport } from './transport.js';
 import { VoidFlagError } from './VoidFlagError.js';
-
 // ─── Constants ────────────────────────────────────────────────────────────────
-
 const ALLOWED_PATCH_KEYS = new Set(['value', 'enabled', 'rollout'] as const);
-
-const BASE_URL = 'http://localhost:3000/api';
 
 // ─── Type Helpers ─────────────────────────────────────────────────────────────
 
@@ -48,18 +49,17 @@ type Patch = {
   rollout?: number;
 };
 
-type FlagNode<T> = {
-  value: T;
-  fallback: T;
+export type Accessor<F extends FlagDefinition> = Readonly<{
+  value: InferFlagValue<F>;
+  enabled: boolean;
+  isRolledOutFor(userId: string): boolean;
+}>;
+export type Snapshot<F extends FlagDefinition> = Readonly<{
+  value: InferFlagValue<F>;
+  fallback: InferFlagValue<F>;
   enabled: boolean;
   rollout: number;
-};
-
-type NodeFor<F extends FlagDefinition> = FlagNode<InferFlagValue<F>>;
-
-export type Accessor<F extends FlagDefinition> = Readonly<NodeFor<F>>;
-export type Snapshot<F extends FlagDefinition> = Readonly<NodeFor<F>>;
-
+}>;
 // ─── FlagPayload (used by transport layer) ────────────────────────────────────
 
 export type FlagPayload<S extends FlagMap> = Record<
@@ -73,11 +73,9 @@ type StateMap<S extends FlagMap> = {
   [K in keyof S]?: Patch;
 };
 
-interface ClientOptions<S extends FlagMap> {
-  schema: S;
-  applyStateSchema?: StateMap<S>;
-  apiKey?: string;
-}
+type ClientOptions<S extends FlagMap> =
+  | { schema: S; dev: true; envKey?: never }
+  | { schema: S; envKey: string; dev?: never };
 
 // ─── Connect response shapes ──────────────────────────────────────────────────
 
@@ -121,8 +119,9 @@ type Store<S extends FlagMap> = { [K in keyof S]: RuntimeFlag<S[K]> };
 function buildAccessor<T extends boolean | string | number>(
   assertNotDisposed: () => void,
   runtime: RuntimeFlag<FlagDefinition>,
-): Readonly<FlagNode<T>> {
-  const node = {} as FlagNode<T>;
+  isRolledOutFor: (userId: string) => boolean,
+): Accessor<FlagDefinition> {
+  const node = Object.create(null);
 
   Object.defineProperty(node, 'enabled', {
     get(): boolean {
@@ -140,20 +139,10 @@ function buildAccessor<T extends boolean | string | number>(
     enumerable: true,
   });
 
-  Object.defineProperty(node, 'fallback', {
-    get(): T {
-      assertNotDisposed();
-      return runtime.fallback as T;
-    },
+  Object.defineProperty(node, 'isRolledOutFor', {
+    value: isRolledOutFor,
     enumerable: true,
-  });
-
-  Object.defineProperty(node, 'rollout', {
-    get(): number {
-      assertNotDisposed();
-      return runtime.rollout;
-    },
-    enumerable: true,
+    writable: false,
   });
 
   return Object.freeze(node);
@@ -164,13 +153,12 @@ function buildAccessor<T extends boolean | string | number>(
 export class VoidClient<S extends FlagMap> {
   public readonly flags: { [K in keyof S]: Accessor<S[K]> };
 
-  #disposed = false;
-
-  // `apiKey` is `readonly` — it is set once at construction and never mutated.
+  // `envKey` is `readonly` — it is set once at construction and never mutated.
   // It is not `private` so that transport.ts can read it when building the
   // fallback PollingTransport inside buildTransport().
-  readonly apiKey: string | undefined;
-
+  #disposed = false;
+  readonly envKey?: string;
+  private readonly dev: boolean = false;
   private transport?: Transport;
   private connected = false;
   private readonly store: Store<S>;
@@ -179,14 +167,25 @@ export class VoidClient<S extends FlagMap> {
 
   constructor(opts: ClientOptions<S>) {
     this.store = Object.create(null) as Store<S>;
-    this.apiKey = opts.apiKey;
+    if (opts.dev && opts.envKey) {
+      throw new VoidFlagError(
+        'dev and envKey are mutually exclusive — use one or the other',
+      );
+    }
     this.#applySchema(opts.schema);
 
-    if (opts.applyStateSchema) {
-      this.applyState(opts.applyStateSchema);
-    }
-
     this.flags = this.#buildLazyFlagsObject(opts.schema);
+
+    if (opts.envKey) {
+      this.envKey = opts.envKey;
+      void this.connect();
+
+      this.dev = false;
+    } else if (opts.dev) {
+      this.dev = true;
+      void this.connect();
+    } else {
+    }
   }
 
   // ─── Schema ────────────────────────────────────────────────────────────────
@@ -280,29 +279,68 @@ export class VoidClient<S extends FlagMap> {
 
   async connect(): Promise<void> {
     this.#assertNotDisposed();
-    if (!this.apiKey) return;
-
-    const res = await fetch(`${BASE_URL}/connect`, {
-      method: 'POST',
-      headers: { 'X-API-Key': this.apiKey },
-    });
-
-    if (!res.ok) {
-      throw new ConnectError(`Connect failed with HTTP ${res.status}`, res.status);
+    if (this.dev) {
+      const devPort = readDevPort() ?? VOIDFLAG_DEV_PORT;
+      const baseUrl = `http://localhost:${devPort}/api`;
+      this.transport = new SSETransport(this, null!, {
+        baseUrl,
+        streamUrl: '/stream?dev=true',
+        maxRetries: Infinity,
+        onError: (_, attempt) => {
+          if (attempt === 1) {
+            console.warn(
+              `\n[voidflag] dev server not running\n` +
+                `  url      → http://localhost:${devPort}\n` +
+                `  fallback → schema defaults (read-only)\n\n` +
+                `  to fix   → run \`vf dev\` to start the local dev server\n`,
+            );
+          } else {
+            console.warn(`[voidflag] retrying SSE (attempt ${attempt})...`);
+          }
+        },
+        onRestore: () => {
+          this.connected = true;
+          console.log(`[voidflag] connected (dev) → http://localhost:${devPort}`);
+        },
+      });
+      void (this.transport.start() as Promise<void>).then(() => {
+        this.connected = true;
+        console.log(`[voidflag] connected (dev) → http://localhost:${devPort}`);
+      });
+      return;
     }
 
-    const data = (await res.json()) as ConnectResponse;
-
-    this.transport?.stop();
-    this.transport = undefined;
-    this.connected = false;
-
-    this.transport = buildTransport(this, data);
-    await this.transport.start();
-
-    this.connected = true;
+    try {
+      if (!this.envKey) throw new VoidFlagError('envKey is required.');
+      const res = await fetch(`${VOIDFLAG_API_URL}/api/connect`, {
+        method: 'POST',
+        headers: { 'X-API-Key': this.envKey },
+      });
+      if (!res.ok)
+        throw new ConnectError(`Connect failed with HTTP ${res.status}`, res.status);
+      const data = (await res.json()) as ConnectResponse;
+      this.transport?.stop();
+      this.transport = undefined;
+      this.connected = false;
+      this.transport = buildTransport(this, data, `${VOIDFLAG_API_URL}/api`);
+      await this.transport.start();
+      this.connected = true;
+      console.log(`[voidflag] connected → ${VOIDFLAG_API_URL}`);
+    } catch (err) {
+      const isFetchFailed = err instanceof TypeError && err.message === 'fetch failed';
+      const isConnectError = err instanceof ConnectError;
+      if (isFetchFailed || isConnectError) {
+        console.warn(
+          `\n[voidflag] connection failed\n` +
+            `  url      → ${VOIDFLAG_API_URL}\n` +
+            `  reason   → ${isFetchFailed ? 'server unreachable' : `HTTP ${(err as ConnectError).status}`}\n` +
+            `  fallback → schema defaults (read-only)\n`,
+        );
+        return;
+      }
+      throw err;
+    }
   }
-
   // ─── applyState() ──────────────────────────────────────────────────────────
 
   applyState(overrides: StateMap<S>): this {
@@ -338,50 +376,39 @@ export class VoidClient<S extends FlagMap> {
 
   // ─── flag() / get() / enabled() ────────────────────────────────────────────
 
-  flag<K extends keyof S>(key: K): Accessor<S[K]> {
-    this.#assertNotDisposed();
-    this.#assertKeyExists(key);
-    if (!this.accessorCache[key]) {
-      this.accessorCache[key] = this.#buildAccessor(key);
-    }
-    return this.accessorCache[key]!;
-  }
+  // flag<K extends keyof S>(key: K): Accessor<S[K]> {
+  //   this.#assertNotDisposed();
+  //   this.#assertKeyExists(key);
+  //   if (!this.accessorCache[key]) {
+  //     this.accessorCache[key] = this.#buildAccessor(key);
+  //   }
+  //   return this.accessorCache[key]!;
+  // }
 
-  get<K extends keyof S>(key: K): InferFlagValue<S[K]> {
-    this.#assertNotDisposed();
-    this.#assertSafeKey(String(key));
-    this.#assertKeyExists(key);
-    const f = this.store[key];
-    return (f.enabled ? f.value : f.fallback) as InferFlagValue<S[K]>;
-  }
+  // get<K extends keyof S>(key: K): InferFlagValue<S[K]> {
+  //   this.#assertNotDisposed();
+  //   this.#assertSafeKey(String(key));
+  //   this.#assertKeyExists(key);
+  //   const f = this.store[key];
+  //   return (f.enabled ? f.value : f.fallback) as InferFlagValue<S[K]>;
+  // }
 
-  enabled<K extends keyof S>(key: K): boolean {
-    this.#assertNotDisposed();
-    this.#assertSafeKey(String(key));
-    this.#assertKeyExists(key);
-    return this.store[key].enabled;
-  }
+  // enabled<K extends keyof S>(key: K): boolean {
+  //   this.#assertNotDisposed();
+  //   this.#assertSafeKey(String(key));
+  //   this.#assertKeyExists(key);
+  //   return this.store[key].enabled;
+  // }
 
-  allEnabled(keys: (keyof S)[]): boolean {
-    this.#assertNotDisposed();
-    return keys.every((k) => this.enabled(k));
-  }
-
-  // ─── isRolledOutFor() ──────────────────────────────────────────────────────
-
-  isRolledOutFor<K extends keyof S>(key: K, userId: string): boolean {
-    this.#assertNotDisposed();
-    this.#assertKeyExists(key);
-    if (typeof userId !== 'string' || userId.length === 0) {
-      throw new VoidFlagError(`isRolledOutFor(): userId must be a non-empty string`);
-    }
-    const f = this.store[key];
-    if (!f.enabled) return false;
-    if (f.rollout >= 100) return true;
-    if (f.rollout <= 0) return false;
-
-    const bucket = stableHash(`${String(key)}:${userId}`) % 100;
-    return bucket < f.rollout;
+  // allEnabled(keys: (keyof S)[]): boolean {
+  //   this.#assertNotDisposed();
+  //   return keys.every((k) => {
+  //     this.#assertKeyExists(k);
+  //     return this.store[k].enabled;
+  //   });
+  // }
+  allEnabled(...flags: { enabled: boolean }[]): boolean {
+    return flags.every((f) => f.enabled);
   }
 
   // ─── hydrate() ─────────────────────────────────────────────────────────────
@@ -425,10 +452,6 @@ export class VoidClient<S extends FlagMap> {
 
   // ─── dispose() / isConnected() ─────────────────────────────────────────────
 
-  isConnected(): boolean {
-    return this.connected;
-  }
-
   dispose(): void {
     if (this.#disposed) return;
     this.transport?.stop();
@@ -442,20 +465,42 @@ export class VoidClient<S extends FlagMap> {
     const flags = {} as { [K in keyof S]: Accessor<S[K]> };
     for (const key in schema) {
       Object.defineProperty(flags, key, {
-        get: () => this.flag(key),
+        get: () => {
+          if (!this.accessorCache[key]) {
+            this.accessorCache[key] = this.#buildAccessor(key);
+          }
+          return this.accessorCache[key]!;
+        },
         enumerable: true,
       });
     }
     return Object.seal(flags);
   }
 
+  // #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
+  //   return buildAccessor(
+  //     this.#assertNotDisposed.bind(this),
+  //     this.store[key] as RuntimeFlag<FlagDefinition>,
+  //   ) as Accessor<S[K]>;
+  // }
   #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
     return buildAccessor(
       this.#assertNotDisposed.bind(this),
       this.store[key] as RuntimeFlag<FlagDefinition>,
+      (userId: string) => this.#computeRollout(key, userId),
     ) as Accessor<S[K]>;
   }
-
+  #computeRollout<K extends keyof S>(key: K, userId: string): boolean {
+    if (typeof userId !== 'string' || userId.length === 0) {
+      throw new VoidFlagError(`isRolledOutFor(): userId must be a non-empty string`);
+    }
+    const f = this.store[key];
+    if (!f.enabled) return false;
+    if (f.rollout >= 100) return true;
+    if (f.rollout <= 0) return false;
+    const bucket = stableHash(`${String(key)}:${userId}`) % 100;
+    return bucket < f.rollout;
+  }
   #assertNotDisposed(): void {
     if (this.#disposed) {
       throw new VoidFlagError(
@@ -482,22 +527,23 @@ export class VoidClient<S extends FlagMap> {
 function buildTransport<S extends FlagMap>(
   client: VoidClient<S>,
   data: ConnectResponse,
+  baseUrl: string,
 ): Transport {
   switch (data.transport) {
     case 'polling':
-      return new PollingTransport(client, client.apiKey!, {
+      return new PollingTransport(client, client.envKey!, baseUrl, {
         interval: data.pollInterval ?? 60_000,
         onError: (err) => console.error('[VoidClient] polling error:', err),
       });
 
     case 'sse': {
-      const fallback = new PollingTransport(client, client.apiKey!, {
+      const fallback = new PollingTransport(client, client.envKey!, baseUrl, {
         interval: 60_000,
         onError: (err) => console.error('[VoidClient] fallback polling error:', err),
       });
 
       return new SSETransport(client, fallback, {
-        baseUrl: BASE_URL,
+        baseUrl,
         streamUrl: data.streamUrl,
         onError: (err, attempt) =>
           console.error(`[VoidClient] SSE error (attempt ${attempt}):`, err),
