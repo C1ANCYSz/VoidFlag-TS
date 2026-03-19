@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import {
   VoidClient,
   VoidFlagError,
@@ -18,7 +18,6 @@ const smallSchema = defineFlags({
   fontSize: number().fallback(16),
 });
 
-// Big schema — exercises lazy flags path (>= EAGER_ACCESSOR_THRESHOLD)
 const bigSchema = defineFlags({
   darkMode: boolean().fallback(false),
   betaMode: boolean().fallback(false),
@@ -51,7 +50,7 @@ const bigSchema = defineFlags({
 ============================================================ */
 
 function makeBigClient() {
-  return new VoidClient({ schema: bigSchema });
+  return new VoidClient({ schema: bigSchema, dev: true });
 }
 
 /* ============================================================
@@ -61,25 +60,25 @@ function makeBigClient() {
 describe('constructor — initial state', () => {
   it('initialises every boolean flag with its fallback value and enabled=true', () => {
     const client = makeBigClient();
-    expect(client.get('darkMode')).toBe(false);
-    expect(client.get('betaMode')).toBe(false);
-    expect(client.get('analyticsEnabled')).toBe(true);
-    expect(client.enabled('darkMode')).toBe(true);
+    expect(client.flags.darkMode.value).toBe(false);
+    expect(client.flags.betaMode.value).toBe(false);
+    expect(client.flags.analyticsEnabled.value).toBe(true);
+    expect(client.flags.darkMode.enabled).toBe(true);
   });
 
   it('initialises every string flag with its fallback value', () => {
     const client = makeBigClient();
-    expect(client.get('theme')).toBe('light');
-    expect(client.get('locale')).toBe('en-US');
-    expect(client.get('apiVersion')).toBe('v1');
-    expect(client.get('fontFamily')).toBe('Inter');
+    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.locale.value).toBe('en-US');
+    expect(client.flags.apiVersion.value).toBe('v1');
+    expect(client.flags.fontFamily.value).toBe('Inter');
   });
 
   it('initialises every number flag with its fallback value', () => {
     const client = makeBigClient();
-    expect(client.get('fontSize')).toBe(16);
-    expect(client.get('maxUploadMb')).toBe(10);
-    expect(client.get('rateLimit')).toBe(100);
+    expect(client.flags.fontSize.value).toBe(16);
+    expect(client.flags.maxUploadMb.value).toBe(10);
+    expect(client.flags.rateLimit.value).toBe(100);
   });
 
   it('sets rollout=0 for boolean flags and rollout=100 for string/number flags', () => {
@@ -90,30 +89,26 @@ describe('constructor — initial state', () => {
     expect(client.snapshot('fontSize').rollout).toBe(100);
   });
 
-  it('applies applyStateSchema during construction', () => {
-    const client = new VoidClient({
-      schema: bigSchema,
-      applyStateSchema: {
-        darkMode: { value: true, enabled: true },
-        theme: { value: 'dark' },
-        fontSize: { value: 24 },
-        rateLimit: { value: 50, rollout: 75 },
-      },
+  it('initial state can be applied via applyState() after construction', () => {
+    const client = makeBigClient();
+    client.applyState({
+      darkMode: { value: true, enabled: true },
+      theme: { value: 'dark' },
+      fontSize: { value: 24 },
+      rateLimit: { value: 50, rollout: 75 },
     });
-    expect(client.get('darkMode')).toBe(true);
-    expect(client.get('theme')).toBe('dark');
-    expect(client.get('fontSize')).toBe(24);
+    expect(client.flags.darkMode.value).toBe(true);
+    expect(client.flags.theme.value).toBe('dark');
+    expect(client.flags.fontSize.value).toBe(24);
     expect(client.snapshot('rateLimit').rollout).toBe(75);
   });
 
-  it('constructor applyStateSchema does not mutate flags not listed', () => {
-    const client = new VoidClient({
-      schema: bigSchema,
-      applyStateSchema: { darkMode: { value: true } },
-    });
-    expect(client.get('theme')).toBe('light');
-    expect(client.get('fontSize')).toBe(16);
-    expect(client.get('locale')).toBe('en-US');
+  it('applyState() does not mutate flags not listed', () => {
+    const client = makeBigClient();
+    client.applyState({ darkMode: { value: true } });
+    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.fontSize.value).toBe(16);
+    expect(client.flags.locale.value).toBe('en-US');
   });
 });
 
@@ -125,19 +120,19 @@ describe('applyState() — value overrides', () => {
   it('overrides a boolean flag value', () => {
     const client = makeBigClient();
     client.applyState({ darkMode: { value: true } });
-    expect(client.get('darkMode')).toBe(true);
+    expect(client.flags.darkMode.value).toBe(true);
   });
 
   it('overrides a string flag value', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
-    expect(client.get('theme')).toBe('dark');
+    expect(client.flags.theme.value).toBe('dark');
   });
 
   it('overrides a number flag value', () => {
     const client = makeBigClient();
     client.applyState({ fontSize: { value: 20 } });
-    expect(client.get('fontSize')).toBe(20);
+    expect(client.flags.fontSize.value).toBe(20);
   });
 
   it('overrides multiple flags in a single call', () => {
@@ -152,14 +147,14 @@ describe('applyState() — value overrides', () => {
       layoutVariant: { value: 'list' },
       buttonStyle: { value: 'square' },
     });
-    expect(client.get('darkMode')).toBe(true);
-    expect(client.get('theme')).toBe('midnight');
-    expect(client.get('fontSize')).toBe(18);
-    expect(client.get('locale')).toBe('fr-FR');
-    expect(client.get('maxRetries')).toBe(5);
-    expect(client.get('sessionTimeoutMin')).toBe(60);
-    expect(client.get('layoutVariant')).toBe('list');
-    expect(client.get('buttonStyle')).toBe('square');
+    expect(client.flags.darkMode.value).toBe(true);
+    expect(client.flags.theme.value).toBe('midnight');
+    expect(client.flags.fontSize.value).toBe(18);
+    expect(client.flags.locale.value).toBe('fr-FR');
+    expect(client.flags.maxRetries.value).toBe(5);
+    expect(client.flags.sessionTimeoutMin.value).toBe(60);
+    expect(client.flags.layoutVariant.value).toBe('list');
+    expect(client.flags.buttonStyle.value).toBe('square');
   });
 
   it('overriding a value does not touch the fallback', () => {
@@ -171,25 +166,25 @@ describe('applyState() — value overrides', () => {
   it('overriding a value does not change enabled state', () => {
     const client = makeBigClient();
     client.applyState({ analyticsEnabled: { value: false } });
-    expect(client.enabled('analyticsEnabled')).toBe(true);
+    expect(client.flags.analyticsEnabled.enabled).toBe(true);
   });
 
   it('supports value=0 (falsy number)', () => {
     const client = makeBigClient();
     client.applyState({ fontSize: { value: 0 } });
-    expect(client.get('fontSize')).toBe(0);
+    expect(client.flags.fontSize.value).toBe(0);
   });
 
   it('supports value="" (empty string)', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: '' } });
-    expect(client.get('theme')).toBe('');
+    expect(client.flags.theme.value).toBe('');
   });
 
   it('supports value=false on a boolean flag that defaults true', () => {
     const client = makeBigClient();
     client.applyState({ analyticsEnabled: { value: false } });
-    expect(client.get('analyticsEnabled')).toBe(false);
+    expect(client.flags.analyticsEnabled.value).toBe(false);
   });
 
   it('chaining applyState() calls accumulates state', () => {
@@ -198,16 +193,16 @@ describe('applyState() — value overrides', () => {
       .applyState({ darkMode: { value: true } })
       .applyState({ theme: { value: 'dim' } })
       .applyState({ fontSize: { value: 14 } });
-    expect(client.get('darkMode')).toBe(true);
-    expect(client.get('theme')).toBe('dim');
-    expect(client.get('fontSize')).toBe(14);
+    expect(client.flags.darkMode.value).toBe(true);
+    expect(client.flags.theme.value).toBe('dim');
+    expect(client.flags.fontSize.value).toBe(14);
   });
 
   it('second applyState() call overwrites first for the same flag', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
     client.applyState({ theme: { value: 'sepia' } });
-    expect(client.get('theme')).toBe('sepia');
+    expect(client.flags.theme.value).toBe('sepia');
   });
 
   it('returns `this` for chaining', () => {
@@ -222,50 +217,50 @@ describe('applyState() — value overrides', () => {
 ============================================================ */
 
 describe('applyState() — enabled overrides', () => {
-  it('disabling a flag makes get() return the fallback', () => {
+  it('disabling a flag makes accessor return the fallback', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark', enabled: false } });
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.theme.value).toBe('light');
   });
 
-  it('disabling a boolean flag makes get() return the boolean fallback', () => {
+  it('disabling a boolean flag makes accessor return the boolean fallback', () => {
     const client = makeBigClient();
     client.applyState({ analyticsEnabled: { value: false, enabled: false } });
     // fallback is true, flag is disabled → should return fallback
-    expect(client.get('analyticsEnabled')).toBe(true);
+    expect(client.flags.analyticsEnabled.value).toBe(true);
   });
 
-  it('disabling a number flag makes get() return the numeric fallback', () => {
+  it('disabling a number flag makes accessor return the numeric fallback', () => {
     const client = makeBigClient();
     client.applyState({ fontSize: { value: 32, enabled: false } });
-    expect(client.get('fontSize')).toBe(16);
+    expect(client.flags.fontSize.value).toBe(16);
   });
 
-  it('enabled: false is visible via enabled()', () => {
+  it('enabled: false is visible via accessor.enabled', () => {
     const client = makeBigClient();
     client.applyState({ darkMode: { enabled: false } });
-    expect(client.enabled('darkMode')).toBe(false);
+    expect(client.flags.darkMode.enabled).toBe(false);
   });
 
   it('re-enabling a flag restores value access', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark', enabled: false } });
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.theme.value).toBe('light');
     client.applyState({ theme: { enabled: true } });
-    expect(client.get('theme')).toBe('dark');
+    expect(client.flags.theme.value).toBe('dark');
   });
 
   it('accessor .value respects enabled=false', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'cosmic', enabled: false } });
-    expect(client.flag('theme').value).toBe('light');
-    expect(client.flag('theme').enabled).toBe(false);
+    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.theme.enabled).toBe(false);
   });
 
   it('accessor .value reflects re-enable live', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'cosmic', enabled: false } });
-    const accessor = client.flag('theme');
+    const accessor = client.flags.theme;
     client.applyState({ theme: { enabled: true } });
     expect(accessor.value).toBe('cosmic');
     expect(accessor.enabled).toBe(true);
@@ -274,12 +269,14 @@ describe('applyState() — enabled overrides', () => {
   it('allEnabled() returns false when any flag is disabled', () => {
     const client = makeBigClient();
     client.applyState({ darkMode: { enabled: false } });
-    expect(client.allEnabled(['darkMode', 'theme'])).toBe(false);
+    expect(client.allEnabled(client.flags.darkMode, client.flags.theme)).toBe(false);
   });
 
   it('allEnabled() returns true when all flags are enabled', () => {
     const client = makeBigClient();
-    expect(client.allEnabled(['theme', 'fontSize', 'locale'])).toBe(true);
+    expect(
+      client.allEnabled(client.flags.theme, client.flags.fontSize, client.flags.locale),
+    ).toBe(true);
   });
 });
 
@@ -310,7 +307,7 @@ describe('applyState() — rollout overrides', () => {
     const client = makeBigClient();
     client.applyState({ theme: { rollout: 100 } });
     for (let i = 0; i < 50; i++) {
-      expect(client.isRolledOutFor('theme', `user-${i}`)).toBe(true);
+      expect(client.flags.theme.isRolledOutFor(`user-${i}`)).toBe(true);
     }
   });
 
@@ -318,14 +315,14 @@ describe('applyState() — rollout overrides', () => {
     const client = makeBigClient();
     client.applyState({ theme: { rollout: 0 } });
     for (let i = 0; i < 50; i++) {
-      expect(client.isRolledOutFor('theme', `user-${i}`)).toBe(false);
+      expect(client.flags.theme.isRolledOutFor(`user-${i}`)).toBe(false);
     }
   });
 
   it('isRolledOutFor() returns false when flag is disabled regardless of rollout', () => {
     const client = makeBigClient();
     client.applyState({ theme: { rollout: 100, enabled: false } });
-    expect(client.isRolledOutFor('theme', 'any-user')).toBe(false);
+    expect(client.flags.theme.isRolledOutFor('any-user')).toBe(false);
   });
 
   it('rollout=50 produces a distribution roughly around 50%', () => {
@@ -333,7 +330,7 @@ describe('applyState() — rollout overrides', () => {
     client.applyState({ newOnboarding: { rollout: 50 } });
     let trueCount = 0;
     for (let i = 0; i < 1000; i++) {
-      if (client.isRolledOutFor('newOnboarding', `user-${i}`)) trueCount++;
+      if (client.flags.newOnboarding.isRolledOutFor(`user-${i}`)) trueCount++;
     }
     expect(trueCount).toBeGreaterThan(400);
     expect(trueCount).toBeLessThan(600);
@@ -342,8 +339,8 @@ describe('applyState() — rollout overrides', () => {
   it('stableHash produces deterministic results for the same userId', () => {
     const client = makeBigClient();
     client.applyState({ newOnboarding: { rollout: 50 } });
-    const first = client.isRolledOutFor('newOnboarding', 'stable-user-99');
-    const second = client.isRolledOutFor('newOnboarding', 'stable-user-99');
+    const first = client.flags.newOnboarding.isRolledOutFor('stable-user-99');
+    const second = client.flags.newOnboarding.isRolledOutFor('stable-user-99');
     expect(first).toBe(second);
   });
 
@@ -366,6 +363,7 @@ describe('applyState() — rollout overrides', () => {
     client.applyState({ theme: { rollout: 50.5 } });
     expect(client.snapshot('theme').rollout).toBe(50.5);
   });
+
   it('throws for NaN rollout', () => {
     const client = makeBigClient();
     expect(() => client.applyState({ theme: { rollout: NaN } })).toThrowError(
@@ -472,12 +470,14 @@ describe('applyState() — key safety', () => {
     );
   });
 
-  it('__proto__ key is silently ignored — null-prototype store is unaffected', () => {
+  it('__proto__ key throws VoidFlagError — reserved key guard', () => {
     const client = makeBigClient();
-    expect(() => client.applyState({ __proto__: { value: true } } as any)).not.toThrow();
+    expect(() => client.applyState({ __proto__: { value: true } } as any)).toThrow(
+      VoidFlagError,
+    );
     // Confirm no flags were mutated
-    expect(client.get('darkMode')).toBe(false);
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.darkMode.value).toBe(false);
+    expect(client.flags.theme.value).toBe('light');
   });
 
   it('throws for prototype key', () => {
@@ -497,7 +497,7 @@ describe('applyState() — key safety', () => {
   it('skips null/undefined patches gracefully', () => {
     const client = makeBigClient();
     expect(() => client.applyState({ darkMode: undefined } as any)).not.toThrow();
-    expect(client.get('darkMode')).toBe(false);
+    expect(client.flags.darkMode.value).toBe(false);
   });
 });
 
@@ -536,7 +536,7 @@ describe('applyState() — disposed client', () => {
 describe('accessor reactivity after applyState()', () => {
   it('previously obtained accessor reflects new value after applyState()', () => {
     const client = makeBigClient();
-    const accessor = client.flag('theme');
+    const accessor = client.flags.theme;
     expect(accessor.value).toBe('light');
     client.applyState({ theme: { value: 'dark' } });
     expect(accessor.value).toBe('dark');
@@ -551,88 +551,89 @@ describe('accessor reactivity after applyState()', () => {
 
   it('accessor fallback is not mutated by applyState() value change', () => {
     const client = makeBigClient();
-    const accessor = client.flag('fontSize');
+    const accessor = client.flags.fontSize;
     client.applyState({ fontSize: { value: 32 } });
-    expect(accessor.fallback).toBe(16);
+    expect(client.snapshot('fontSize').fallback).toBe(16);
+    // accessor value reflects the new hydrated value
+    expect(accessor.value).toBe(32);
   });
 
-  it('accessor rollout updates after applyState()', () => {
+  it('snapshot rollout updates after applyState()', () => {
     const client = makeBigClient();
-    const accessor = client.flag('paginationSize');
     client.applyState({ paginationSize: { rollout: 55 } });
-    expect(accessor.rollout).toBe(55);
+    expect(client.snapshot('paginationSize').rollout).toBe(55);
   });
 
   it('accessor is frozen (immutable shape)', () => {
     const client = makeBigClient();
-    const accessor = client.flag('theme');
+    const accessor = client.flags.theme;
     expect(Object.isFrozen(accessor)).toBe(true);
   });
 
   it('accessor throws after client is disposed', () => {
     const client = makeBigClient();
-    const accessor = client.flag('theme');
+    const accessor = client.flags.theme;
     client.dispose();
     expect(() => accessor.value).toThrowError(VoidFlagError);
     expect(() => accessor.enabled).toThrowError(VoidFlagError);
-    expect(() => accessor.fallback).toThrowError(VoidFlagError);
-    expect(() => accessor.rollout).toThrowError(VoidFlagError);
+    expect(() => accessor.isRolledOutFor('u')).toThrowError(VoidFlagError);
   });
 
-  it('flag() returns the same cached accessor instance on repeated calls', () => {
+  it('flags.* returns the same cached accessor instance on repeated access', () => {
     const client = makeBigClient();
-    const a = client.flag('theme');
-    const b = client.flag('theme');
+    const a = client.flags.theme;
+    const b = client.flags.theme;
     expect(a).toBe(b);
   });
 });
 
 /* ============================================================
-   9. get() / enabled() / allEnabled() after applyState()
+   9. accessor.enabled / allEnabled() after applyState()
 ============================================================ */
 
-describe('get() / enabled() / allEnabled() after applyState()', () => {
-  it('get() returns fallback after disable', () => {
+describe('accessor.enabled / allEnabled() after applyState()', () => {
+  it('accessor.value returns fallback after disable', () => {
     const client = makeBigClient();
     client.applyState({ currency: { value: 'EUR', enabled: false } });
-    expect(client.get('currency')).toBe('USD');
+    expect(client.flags.currency.value).toBe('USD');
   });
 
-  it('enabled() is false after applyState disable', () => {
+  it('accessor.enabled is false after applyState disable', () => {
     const client = makeBigClient();
     client.applyState({ currency: { enabled: false } });
-    expect(client.enabled('currency')).toBe(false);
+    expect(client.flags.currency.enabled).toBe(false);
   });
 
   it('allEnabled() returns false if one flag among many is disabled', () => {
     const client = makeBigClient();
     client.applyState({ betaMode: { enabled: false } });
     expect(
-      client.allEnabled([
-        'darkMode',
-        'betaMode',
-        'analyticsEnabled',
-        'theme',
-        'fontSize',
-      ]),
+      client.allEnabled(
+        client.flags.darkMode,
+        client.flags.betaMode,
+        client.flags.analyticsEnabled,
+        client.flags.theme,
+        client.flags.fontSize,
+      ),
     ).toBe(false);
   });
 
   it('allEnabled() returns true for all-enabled set', () => {
     const client = makeBigClient();
     expect(
-      client.allEnabled(['theme', 'fontSize', 'locale', 'currency', 'apiVersion']),
+      client.allEnabled(
+        client.flags.theme,
+        client.flags.fontSize,
+        client.flags.locale,
+        client.flags.currency,
+        client.flags.apiVersion,
+      ),
     ).toBe(true);
   });
 
-  it('get() throws on unknown key', () => {
+  it('snapshot() throws on unknown key', () => {
     const client = makeBigClient();
-    expect(() => client.get('unknown' as any)).toThrowError(VoidFlagError);
-  });
-
-  it('enabled() throws on unknown key', () => {
-    const client = makeBigClient();
-    expect(() => client.enabled('unknown' as any)).toThrowError(VoidFlagError);
+    expect(() => client.snapshot('unknown' as any)).toThrowError(VoidFlagError);
   });
 });
 
@@ -662,10 +663,8 @@ describe('snapshot() / debugSnapshots() after applyState()', () => {
     client.applyState({ theme: { value: 'dark' } });
     const snap = client.snapshot('theme');
     client.applyState({ theme: { value: 'solarized' } });
-    // snapshot was captured before second applyState
     expect(snap.value).toBe('dark');
-    // live get() reflects the new value
-    expect(client.get('theme')).toBe('solarized');
+    expect(client.flags.theme.value).toBe('solarized');
   });
 
   it('debugSnapshots() covers all keys in schema', () => {
@@ -703,54 +702,52 @@ describe('hydrate() interaction with applyState()', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
     client.hydrate('theme', { value: 'solarized' });
-    expect(client.get('theme')).toBe('solarized');
+    expect(client.flags.theme.value).toBe('solarized');
   });
 
   it('applyState() after hydrate() overwrites the hydrated value', () => {
     const client = makeBigClient();
     client.hydrate('theme', { value: 'solarized' });
     client.applyState({ theme: { value: 'dark' } });
-    expect(client.get('theme')).toBe('dark');
+    expect(client.flags.theme.value).toBe('dark');
   });
 
-  it('hydrate() with enabled=false is reflected by get()', () => {
+  it('hydrate() with enabled=false is reflected by accessor', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
     client.hydrate('theme', { enabled: false });
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.theme.value).toBe('light');
   });
 });
 
 /* ============================================================
-   12. applyState() on the small schema (eager flags path)
+   12. applyState() on the small schema
 ============================================================ */
 
-describe('applyState() — eager flags path (< EAGER_ACCESSOR_THRESHOLD)', () => {
+describe('applyState() — small schema', () => {
   it('applyState() works on a 1-flag schema', () => {
     const oneFlag = defineFlags({ darkMode: boolean().fallback(false) });
-    const client = new VoidClient({ schema: oneFlag });
+    const client = new VoidClient({ schema: oneFlag, dev: true });
     client.applyState({ darkMode: { value: true } });
-    expect(client.get('darkMode')).toBe(true);
+    expect(client.flags.darkMode.value).toBe(true);
   });
 
-  it('flags object is frozen on the eager path', () => {
+  it('flags object is sealed — cannot add new keys', () => {
     const oneFlag = defineFlags({ darkMode: boolean().fallback(false) });
-    const client = new VoidClient({ schema: oneFlag });
-    expect(Object.isFrozen(client.flags)).toBe(true);
+    const client = new VoidClient({ schema: oneFlag, dev: true });
+    expect(Object.isSealed(client.flags)).toBe(true);
   });
 
-  it('small schema with applyStateSchema in constructor works', () => {
-    const client = new VoidClient({
-      schema: smallSchema,
-      applyStateSchema: {
-        darkMode: { value: true },
-        theme: { value: 'dark' },
-        fontSize: { value: 14 },
-      },
+  it('small schema applyState() then hydrate() stays consistent', () => {
+    const client = new VoidClient({ schema: smallSchema, dev: true });
+    client.applyState({
+      darkMode: { value: true },
+      theme: { value: 'dark' },
+      fontSize: { value: 14 },
     });
-    expect(client.get('darkMode')).toBe(true);
-    expect(client.get('theme')).toBe('dark');
-    expect(client.get('fontSize')).toBe(14);
+    expect(client.flags.darkMode.value).toBe(true);
+    expect(client.flags.theme.value).toBe('dark');
+    expect(client.flags.fontSize.value).toBe(14);
   });
 });
 
@@ -762,28 +759,28 @@ describe('isRolledOutFor() after applyState()', () => {
   it('returns false for all users when rollout=0', () => {
     const client = makeBigClient();
     client.applyState({ newOnboarding: { rollout: 0 } });
-    expect(client.isRolledOutFor('newOnboarding', 'alice')).toBe(false);
-    expect(client.isRolledOutFor('newOnboarding', 'bob')).toBe(false);
-    expect(client.isRolledOutFor('newOnboarding', 'charlie')).toBe(false);
+    expect(client.flags.newOnboarding.isRolledOutFor('alice')).toBe(false);
+    expect(client.flags.newOnboarding.isRolledOutFor('bob')).toBe(false);
+    expect(client.flags.newOnboarding.isRolledOutFor('charlie')).toBe(false);
   });
 
   it('returns true for all users when rollout=100', () => {
     const client = makeBigClient();
     client.applyState({ newOnboarding: { rollout: 100 } });
-    expect(client.isRolledOutFor('newOnboarding', 'alice')).toBe(true);
-    expect(client.isRolledOutFor('newOnboarding', 'bob')).toBe(true);
-    expect(client.isRolledOutFor('newOnboarding', 'charlie')).toBe(true);
+    expect(client.flags.newOnboarding.isRolledOutFor('alice')).toBe(true);
+    expect(client.flags.newOnboarding.isRolledOutFor('bob')).toBe(true);
+    expect(client.flags.newOnboarding.isRolledOutFor('charlie')).toBe(true);
   });
 
   it('returns false regardless of rollout when flag is disabled', () => {
     const client = makeBigClient();
     client.applyState({ featurePreview: { rollout: 100, enabled: false } });
-    expect(client.isRolledOutFor('featurePreview', 'alice')).toBe(false);
+    expect(client.flags.featurePreview.isRolledOutFor('alice')).toBe(false);
   });
 
-  it('throws on unknown key', () => {
+  it('empty userId throws VoidFlagError', () => {
     const client = makeBigClient();
-    expect(() => client.isRolledOutFor('ghost' as any, 'user-1')).toThrowError(
+    expect(() => client.flags.newOnboarding.isRolledOutFor('')).toThrowError(
       VoidFlagError,
     );
   });
@@ -824,28 +821,28 @@ describe('full-schema stress test', () => {
     });
 
     // booleans
-    expect(client.get('darkMode')).toBe(true);
-    expect(client.get('betaMode')).toBe(true);
-    expect(client.get('maintenanceMode')).toBe(false); // disabled → fallback
-    expect(client.get('analyticsEnabled')).toBe(false);
-    expect(client.get('strictMode')).toBe(false);
+    expect(client.flags.darkMode.value).toBe(true);
+    expect(client.flags.betaMode.value).toBe(true);
+    expect(client.flags.maintenanceMode.value).toBe(false); // disabled → fallback
+    expect(client.flags.analyticsEnabled.value).toBe(false);
+    expect(client.flags.strictMode.value).toBe(false);
 
     // strings
-    expect(client.get('theme')).toBe('midnight');
-    expect(client.get('locale')).toBe('de-DE');
-    expect(client.get('currency')).toBe('EUR');
-    expect(client.get('apiVersion')).toBe('v3');
-    expect(client.get('fontFamily')).toBe('JetBrains Mono');
+    expect(client.flags.theme.value).toBe('midnight');
+    expect(client.flags.locale.value).toBe('de-DE');
+    expect(client.flags.currency.value).toBe('EUR');
+    expect(client.flags.apiVersion.value).toBe('v3');
+    expect(client.flags.fontFamily.value).toBe('JetBrains Mono');
 
     // numbers
-    expect(client.get('fontSize')).toBe(14);
-    expect(client.get('maxUploadMb')).toBe(50);
-    expect(client.get('sessionTimeoutMin')).toBe(15);
-    expect(client.get('cacheTtlSec')).toBe(600);
-    expect(client.get('rateLimit')).toBe(200);
+    expect(client.flags.fontSize.value).toBe(14);
+    expect(client.flags.maxUploadMb.value).toBe(50);
+    expect(client.flags.sessionTimeoutMin.value).toBe(15);
+    expect(client.flags.cacheTtlSec.value).toBe(600);
+    expect(client.flags.rateLimit.value).toBe(200);
 
     // disabled flag returns fallback
-    expect(client.enabled('maintenanceMode')).toBe(false);
+    expect(client.flags.maintenanceMode.enabled).toBe(false);
     expect(client.snapshot('maintenanceMode').fallback).toBe(false);
 
     // rollouts

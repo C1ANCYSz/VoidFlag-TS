@@ -79,7 +79,7 @@ type Schema = typeof schema;
 const ALL_KEYS = Object.keys(schema) as (keyof Schema)[];
 
 function makeClient() {
-  return new VoidClient({ schema });
+  return new VoidClient({ schema, dev: true });
 }
 
 // ----------------------------------------------------------------
@@ -127,12 +127,6 @@ describe('lazy accessors — large schema (55 flags)', () => {
 
   // --- Accessor identity ------------------------------------------
 
-  it('flags.* returns the same reference as flag() for all keys', () => {
-    for (const key of ALL_KEYS) {
-      expect(vf.flags[key]).toBe(vf.flag(key));
-    }
-  });
-
   it('repeated flags.* access returns the same object reference', () => {
     const a = vf.flags.themeColor;
     const b = vf.flags.themeColor;
@@ -141,36 +135,33 @@ describe('lazy accessors — large schema (55 flags)', () => {
     expect(b).toBe(c);
   });
 
-  it('accessor cache is populated after first access', () => {
-    void vf.flags.fontSize;
-    void vf.flags.themeColor;
-    void vf.flags.darkMode;
-    expect(vf.flag('fontSize')).toBe(vf.flags.fontSize);
-    expect(vf.flag('themeColor')).toBe(vf.flags.themeColor);
-    expect(vf.flag('darkMode')).toBe(vf.flags.darkMode);
+  it('accessor cache is populated after first access — same ref on re-access', () => {
+    const first = vf.flags.fontSize;
+    const second = vf.flags.fontSize;
+    expect(first).toBe(second);
   });
 
   // --- Rollout presence -------------------------------------------
 
-  it('boolean flags have no rollout property', () => {
+  it('boolean flags have rollout on their snapshot', () => {
     const boolKeys = ALL_KEYS.filter((k) => schema[k].type === 'BOOLEAN');
     for (const key of boolKeys) {
-      expect('rollout' in vf.flags[key]).toBe(true);
+      expect('rollout' in vf.snapshot(key)).toBe(true);
     }
   });
 
-  it('string and number flags all have a rollout property', () => {
+  it('string and number flags all have a rollout on their snapshot', () => {
     const variantKeys = ALL_KEYS.filter((k) => schema[k].type !== 'BOOLEAN');
     for (const key of variantKeys) {
-      expect('rollout' in vf.flags[key]).toBe(true);
+      expect('rollout' in vf.snapshot(key)).toBe(true);
     }
   });
 
   it('all variant rollouts default to 100', () => {
-    expect(vf.flags.themeColor.rollout).toBe(100);
-    expect(vf.flags.fontSize.rollout).toBe(100);
-    expect(vf.flags.checkoutVariant.rollout).toBe(100);
-    expect(vf.flags.sessionTimeout.rollout).toBe(100);
+    expect(vf.snapshot('themeColor').rollout).toBe(100);
+    expect(vf.snapshot('fontSize').rollout).toBe(100);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(100);
+    expect(vf.snapshot('sessionTimeout').rollout).toBe(100);
   });
 
   // --- Seal -------------------------------------------------------
@@ -192,7 +183,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
   it('hydrating a string flag is reflected immediately on the accessor', () => {
     vf.hydrate('themeColor', { value: 'red' });
     expect(vf.flags.themeColor.value).toBe('red');
-    expect(vf.get('themeColor')).toBe('red');
+    expect(vf.snapshot('themeColor').value).toBe('red');
   });
 
   it('hydrating a number flag is reflected immediately on the accessor', () => {
@@ -205,24 +196,24 @@ describe('lazy accessors — large schema (55 flags)', () => {
     expect(vf.flags.darkMode.value).toBe(true);
   });
 
-  it('hydrating rollout is reflected immediately', () => {
+  it('hydrating rollout is reflected immediately via snapshot', () => {
     vf.hydrate('checkoutVariant', { rollout: 42 });
-    expect(vf.flags.checkoutVariant.rollout).toBe(42);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(42);
   });
 
   it('disabling a flag makes value return fallback', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: false });
     expect(vf.flags.themeColor.value).toBe('#000000');
-    expect(vf.flags.themeColor.fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     expect(vf.flags.themeColor.enabled).toBe(false);
   });
 
-  it('hydrating fallback is reflected on accessor.fallback', () => {
+  it('hydrating fallback field throws VoidFlagError and leaves store untouched', () => {
     expect(() => {
       vf.hydrate('fontSize', { fallback: 999, enabled: false } as any);
     }).toThrow(VoidFlagError);
-    expect(vf.flags.fontSize.fallback).toBe(16);
-    expect(vf.flags.fontSize.value).toBe(16); // disabled → fallback
+    expect(vf.snapshot('fontSize').fallback).toBe(16);
+    expect(vf.flags.fontSize.value).toBe(16);
   });
 
   it('accessors grabbed before hydration reflect post-hydration values', () => {
@@ -331,21 +322,19 @@ describe('lazy accessors — large schema (55 flags)', () => {
     }
   });
 
-  it('rollout changes mid-loop are reflected on the accessor', () => {
-    const acc = vf.flags.checkoutVariant;
+  it('rollout changes mid-loop are reflected via snapshot', () => {
     for (let i = 0; i <= 100; i += 10) {
       vf.hydrate('checkoutVariant', { rollout: i });
-      expect(acc.rollout).toBe(i);
+      expect(vf.snapshot('checkoutVariant').rollout).toBe(i);
     }
   });
 
   // --- Fallback integrity -----------------------------------------
 
   it('fallback stays unchanged across 10,000 value hydrations', () => {
-    const acc = vf.flags.themeColor;
     for (let i = 0; i < 10_000; i++) {
       vf.hydrate('themeColor', { value: `color-${i}` });
-      expect(acc.fallback).toBe('#000000');
+      expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     }
   });
 
@@ -361,50 +350,50 @@ describe('lazy accessors — large schema (55 flags)', () => {
     expect(acc.value).toBe('stale');
   });
 
-  // --- enabled() / allEnabled() under full schema -----------------
+  // --- enabled / allEnabled() under full schema -------------------
 
   it('allEnabled returns true when all flags are enabled', () => {
-    expect(vf.allEnabled(ALL_KEYS)).toBe(true);
+    expect(vf.allEnabled(...ALL_KEYS.map((k) => vf.flags[k]))).toBe(true);
   });
 
   it('allEnabled returns false as soon as one flag is disabled', () => {
     for (const key of ALL_KEYS) {
       const fresh = makeClient();
       fresh.hydrate(key, { enabled: false } as any);
-      expect(fresh.allEnabled(ALL_KEYS)).toBe(false);
+      expect(fresh.allEnabled(...ALL_KEYS.map((k) => fresh.flags[k]))).toBe(false);
     }
   });
 
-  it('enabled() reflects hydration immediately for all 55 flags', () => {
+  it('accessor .enabled reflects hydration immediately for all 55 flags', () => {
     for (const key of ALL_KEYS) {
-      expect(vf.enabled(key)).toBe(true);
+      expect(vf.flags[key].enabled).toBe(true);
       vf.hydrate(key, { enabled: false } as any);
-      expect(vf.enabled(key)).toBe(false);
+      expect(vf.flags[key].enabled).toBe(false);
       vf.hydrate(key, { enabled: true } as any);
-      expect(vf.enabled(key)).toBe(true);
+      expect(vf.flags[key].enabled).toBe(true);
     }
   });
 
   // --- isRolledOutFor() -------------------------------------------
 
   it('isRolledOutFor returns true when rollout is 100', () => {
-    expect(vf.isRolledOutFor('themeColor', 'any-user')).toBe(true);
+    expect(vf.flags.themeColor.isRolledOutFor('any-user')).toBe(true);
   });
 
   it('isRolledOutFor returns false when rollout is 0', () => {
     vf.hydrate('themeColor', { rollout: 0 });
-    expect(vf.isRolledOutFor('themeColor', 'any-user')).toBe(false);
+    expect(vf.flags.themeColor.isRolledOutFor('any-user')).toBe(false);
   });
 
   it('isRolledOutFor returns false when flag is disabled', () => {
     vf.hydrate('themeColor', { enabled: false, rollout: 100 });
-    expect(vf.isRolledOutFor('themeColor', 'user-123')).toBe(false);
+    expect(vf.flags.themeColor.isRolledOutFor('user-123')).toBe(false);
   });
 
   it('isRolledOutFor is deterministic for the same user+key', () => {
     vf.hydrate('themeColor', { rollout: 50 });
-    const r1 = vf.isRolledOutFor('themeColor', 'stable-user');
-    const r2 = vf.isRolledOutFor('themeColor', 'stable-user');
+    const r1 = vf.flags.themeColor.isRolledOutFor('stable-user');
+    const r2 = vf.flags.themeColor.isRolledOutFor('stable-user');
     expect(r1).toBe(r2);
   });
 
@@ -412,7 +401,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
     vf.hydrate('checkoutVariant', { rollout: 50, enabled: true });
     const results: boolean[] = [];
     for (let i = 0; i < 100; i++) {
-      results.push(vf.isRolledOutFor('checkoutVariant', 'sticky-user'));
+      results.push(vf.flags.checkoutVariant.isRolledOutFor('sticky-user'));
     }
     expect(new Set(results).size).toBe(1);
   });
@@ -423,18 +412,18 @@ describe('lazy accessors — large schema (55 flags)', () => {
     const results = new Set<string>();
     for (let i = 0; i < 200; i++) {
       const userId = `user-${i}`;
-      const a = vf.isRolledOutFor('themeColor', userId);
-      const b = vf.isRolledOutFor('checkoutVariant', userId);
+      const a = vf.flags.themeColor.isRolledOutFor(userId);
+      const b = vf.flags.checkoutVariant.isRolledOutFor(userId);
       results.add(`${a}-${b}`);
     }
-    expect(results.size).toBe(4); // all four combos appear
+    expect(results.size).toBe(4);
   });
 
   it('50% rollout distributes within reasonable bounds over 10,000 users', () => {
     vf.hydrate('checkoutVariant', { rollout: 50, enabled: true });
     let inCount = 0;
     for (let i = 0; i < 10_000; i++) {
-      if (vf.isRolledOutFor('checkoutVariant', `user-${i}`)) inCount++;
+      if (vf.flags.checkoutVariant.isRolledOutFor(`user-${i}`)) inCount++;
     }
     expect(inCount).toBeGreaterThan(4_000);
     expect(inCount).toBeLessThan(6_000);
@@ -444,7 +433,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
     vf.hydrate('checkoutVariant', { rollout: 10, enabled: true });
     let inCount = 0;
     for (let i = 0; i < 10_000; i++) {
-      if (vf.isRolledOutFor('checkoutVariant', `user-${i}`)) inCount++;
+      if (vf.flags.checkoutVariant.isRolledOutFor(`user-${i}`)) inCount++;
     }
     expect(inCount).toBeGreaterThan(800);
     expect(inCount).toBeLessThan(1_200);
@@ -462,7 +451,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
     expect(snaps.themeColor.value).toBe('red');
     expect(snaps.fontSize.value).toBe(99);
     expect(snaps.darkMode.value).toBe(true);
-    expect((snaps.checkoutVariant as any).rollout).toBe(33);
+    expect(snaps.checkoutVariant.rollout).toBe(33);
   });
 
   it('debugSnapshots is frozen — cannot mutate entries', () => {
@@ -538,7 +527,6 @@ describe('lazy accessors — large schema (55 flags)', () => {
         for (const key of ALL_KEYS) {
           void vf.flags[key].value;
           void vf.flags[key].enabled;
-          void vf.flags[key].fallback;
         }
       }
     }).not.toThrow();
@@ -563,27 +551,26 @@ describe('lazy accessors — large schema (55 flags)', () => {
     }
   });
 
-  it('get() and flags.*.value always agree for all 55 flags under hydration', () => {
+  it('snapshot().value and flags.*.value always agree when enabled for all 55 flags', () => {
     for (let round = 0; round < 20; round++) {
       for (const key of ALL_KEYS) {
-        if (round % 3 === 0) vf.hydrate(key, { enabled: false } as any);
-        else vf.hydrate(key, { enabled: true } as any);
+        vf.hydrate(key, { enabled: true } as any);
       }
       for (const key of ALL_KEYS) {
-        expect(vf.get(key)).toBe(vf.flags[key].value);
+        // When enabled, snapshot raw value === accessor resolved value
+        expect(vf.snapshot(key).value).toBe(vf.flags[key].value);
       }
     }
   });
 
   // --- dispose() --------------------------------------------------
 
-  it('accessor grabbed before dispose throws on every property after dispose', () => {
+  it('accessor grabbed before dispose throws on value and enabled after dispose', () => {
     const acc = vf.flags.themeColor;
     vf.dispose();
     expect(() => acc.value).toThrow(VoidFlagError);
-    expect(() => acc.fallback).toThrow(VoidFlagError);
     expect(() => acc.enabled).toThrow(VoidFlagError);
-    expect(() => acc.rollout).toThrow(VoidFlagError);
+    expect(() => acc.isRolledOutFor('u')).toThrow(VoidFlagError);
   });
 
   it('hydrate after dispose does not silently resurrect accessors', () => {
@@ -595,9 +582,11 @@ describe('lazy accessors — large schema (55 flags)', () => {
     expect(() => acc.value).toThrow(VoidFlagError);
   });
 
-  it('un-accessed flags also throw after dispose', () => {
+  it('un-accessed flag accessor throws after dispose', () => {
+    // grab the accessor (proxy doesn't throw; property getters do)
     vf.dispose();
-    expect(() => vf.flags.mapProvider).toThrow(VoidFlagError);
+    const acc = vf.flags.mapProvider;
+    expect(() => acc.value).toThrow(VoidFlagError);
   });
 
   it('all 55 cached accessors throw after dispose', () => {
@@ -606,11 +595,6 @@ describe('lazy accessors — large schema (55 flags)', () => {
     for (const acc of accs) {
       expect(() => acc.value).toThrow(VoidFlagError);
     }
-  });
-
-  it('flags.* access itself throws after dispose', () => {
-    vf.dispose();
-    expect(() => vf.flags.darkMode).toThrow(VoidFlagError);
   });
 
   it('dispose is idempotent', () => {

@@ -140,9 +140,11 @@ function buildAccessor<T extends boolean | string | number>(
   });
 
   Object.defineProperty(node, 'isRolledOutFor', {
-    value: isRolledOutFor,
+    get(): (userId: string) => boolean {
+      assertNotDisposed();
+      return isRolledOutFor;
+    },
     enumerable: true,
-    writable: false,
   });
 
   return Object.freeze(node);
@@ -345,10 +347,16 @@ export class VoidClient<S extends FlagMap> {
 
   applyState(overrides: StateMap<S>): this {
     this.#assertNotDisposed();
+    if (
+      Object.getPrototypeOf(overrides) !== Object.prototype &&
+      Object.getPrototypeOf(overrides) !== null
+    ) {
+      throw new VoidFlagError('Invalid object prototype');
+    }
 
     const validated: Array<[keyof S, Patch]> = [];
 
-    for (const rawKey in overrides) {
+    for (const rawKey of Object.keys(overrides)) {
       if (!Object.prototype.hasOwnProperty.call(overrides, rawKey)) continue;
 
       this.#assertSafeKey(rawKey);

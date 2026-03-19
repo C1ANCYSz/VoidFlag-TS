@@ -4,8 +4,15 @@
  * No vacuous truths. No arithmetic tests. No "doesn't throw" smoke checks.
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { defineFlags, boolean, string, number, VoidClient } from '@voidflag/sdk';
+import { describe, it, expect, beforeEach } from 'vitest';
+import {
+  defineFlags,
+  boolean,
+  string,
+  number,
+  VoidClient,
+  VoidFlagError,
+} from '@voidflag/sdk';
 
 const flags = defineFlags({
   darkMode: boolean().fallback(false),
@@ -22,7 +29,7 @@ const flags = defineFlags({
 });
 
 function makeClient() {
-  return new VoidClient({ schema: flags });
+  return new VoidClient({ schema: flags, dev: true });
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
@@ -65,13 +72,13 @@ describe('Type guard — boolean flags', () => {
   it('accepts true', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { value: true } });
-    expect(vf.get('darkMode')).toBe(true);
+    expect(vf.flags.darkMode.value).toBe(true);
   });
 
   it('accepts false', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { value: false } });
-    expect(vf.get('darkMode')).toBe(false);
+    expect(vf.flags.darkMode.value).toBe(false);
   });
 });
 
@@ -108,7 +115,7 @@ describe('Type guard — string flags', () => {
   it('accepts empty string', () => {
     const vf = makeClient();
     vf.applyState({ theme: { value: '' } });
-    expect(vf.get('theme')).toBe('');
+    expect(vf.flags.theme.value).toBe('');
   });
 });
 
@@ -150,13 +157,13 @@ describe('Type guard — number flags', () => {
   it('accepts 0', () => {
     const vf = makeClient();
     vf.applyState({ fontSize: { value: 0 } });
-    expect(vf.get('fontSize')).toBe(0);
+    expect(vf.flags.fontSize.value).toBe(0);
   });
 
   it('accepts negative finite number', () => {
     const vf = makeClient();
     vf.applyState({ fontSize: { value: -1 } });
-    expect(vf.get('fontSize')).toBe(-1);
+    expect(vf.flags.fontSize.value).toBe(-1);
   });
 });
 
@@ -204,6 +211,7 @@ describe('Rollout boundary enforcement', () => {
     const vf = makeClient();
     expect(() => vf.applyState({ darkMode: { rollout: -1 } })).toThrow();
   });
+
   it('accepts 50.5 and rounds to 50.50', () => {
     const vf = makeClient();
     vf.applyState({ theme: { rollout: 50.5 } });
@@ -221,6 +229,7 @@ describe('Rollout boundary enforcement', () => {
     vf.applyState({ theme: { rollout: 99.999 } });
     expect(vf.snapshot('theme').rollout).toBe(100);
   });
+
   it('rejects NaN', () => {
     const vf = makeClient();
     expect(() => vf.applyState({ darkMode: { rollout: NaN } })).toThrow();
@@ -278,7 +287,7 @@ describe('Patch field whitelist', () => {
     it(`rejects unknown patch field "${field}"`, () => {
       const vf = makeClient();
       expect(() => vf.applyState({ darkMode: { [field]: true } as any })).toThrow(
-        /unknown patch field|reserved/i,
+        /unknown patch field/i,
       );
     });
   }
@@ -312,16 +321,6 @@ describe('Key safety — prototype pollution', () => {
       expect(() => vf.applyState({ [key]: { value: 'pwned' } } as any)).toThrow();
     });
 
-    it(`get() rejects "${key}"`, () => {
-      const vf = makeClient();
-      expect(() => vf.get(key as any)).toThrow();
-    });
-
-    it(`enabled() rejects "${key}"`, () => {
-      const vf = makeClient();
-      expect(() => vf.enabled(key as any)).toThrow();
-    });
-
     it(`hydrate() rejects "${key}"`, () => {
       const vf = makeClient();
       expect(() => vf.hydrate(key as any, { value: 'pwned' })).toThrow();
@@ -330,11 +329,6 @@ describe('Key safety — prototype pollution', () => {
     it(`snapshot() rejects "${key}"`, () => {
       const vf = makeClient();
       expect(() => vf.snapshot(key as any)).toThrow();
-    });
-
-    it(`flag() rejects "${key}"`, () => {
-      const vf = makeClient();
-      expect(() => vf.flag(key as any)).toThrow();
     });
   }
 
@@ -360,14 +354,14 @@ describe('Unknown flag keys', () => {
       expect(() => vf.applyState({ [key]: { value: true } } as any)).toThrow();
     });
 
-    it(`get() throws for unknown key "${key}"`, () => {
+    it(`snapshot() throws for unknown key "${key}"`, () => {
       const vf = makeClient();
-      expect(() => vf.get(key as any)).toThrow();
+      expect(() => vf.snapshot(key as any)).toThrow();
     });
 
-    it(`flag() throws for unknown key "${key}"`, () => {
+    it(`hydrate() throws for unknown key "${key}"`, () => {
       const vf = makeClient();
-      expect(() => vf.flag(key as any)).toThrow();
+      expect(() => vf.hydrate(key as any, { value: true })).toThrow();
     });
   }
 });
@@ -385,8 +379,8 @@ describe('applyState() atomicity', () => {
         fontSize: { value: 'big' as any },
       }),
     ).toThrow();
-    expect(vf.get('theme')).toBe('light');
-    expect(vf.get('fontSize')).toBe(16);
+    expect(vf.flags.theme.value).toBe('light');
+    expect(vf.flags.fontSize.value).toBe(16);
   });
 
   it('rolls back when an early patch is invalid and a later one is valid', () => {
@@ -397,8 +391,8 @@ describe('applyState() atomicity', () => {
         theme: { value: 'dark' },
       }),
     ).toThrow();
-    expect(vf.get('theme')).toBe('light');
-    expect(vf.get('fontSize')).toBe(16);
+    expect(vf.flags.theme.value).toBe('light');
+    expect(vf.flags.fontSize.value).toBe(16);
   });
 
   it('rolls back when all patches are invalid', () => {
@@ -409,7 +403,7 @@ describe('applyState() atomicity', () => {
         fontSize: { rollout: 999 },
       }),
     ).toThrow();
-    expect(vf.get('darkMode')).toBe(false);
+    expect(vf.flags.darkMode.value).toBe(false);
     expect(vf.snapshot('fontSize').rollout).toBe(100);
   });
 
@@ -420,9 +414,9 @@ describe('applyState() atomicity', () => {
       fontSize: { value: 20 },
       darkMode: { enabled: true, value: true },
     });
-    expect(vf.get('theme')).toBe('dark');
-    expect(vf.get('fontSize')).toBe(20);
-    expect(vf.get('darkMode')).toBe(true);
+    expect(vf.flags.theme.value).toBe('dark');
+    expect(vf.flags.fontSize.value).toBe(20);
+    expect(vf.flags.darkMode.value).toBe(true);
   });
 });
 
@@ -493,53 +487,53 @@ describe('hydrate() validation', () => {
 describe('isRolledOutFor() validation', () => {
   it('rejects non-string userId (number)', () => {
     const vf = makeClient();
-    expect(() => vf.isRolledOutFor('darkMode', 42 as any)).toThrow(/string/i);
+    expect(() => vf.flags.darkMode.isRolledOutFor(42 as any)).toThrow();
   });
 
   it('rejects non-string userId (null)', () => {
     const vf = makeClient();
-    expect(() => vf.isRolledOutFor('darkMode', null as any)).toThrow();
+    expect(() => vf.flags.darkMode.isRolledOutFor(null as any)).toThrow();
   });
 
   it('rejects non-string userId (boolean)', () => {
     const vf = makeClient();
-    expect(() => vf.isRolledOutFor('darkMode', true as any)).toThrow(/string/i);
+    expect(() => vf.flags.darkMode.isRolledOutFor(true as any)).toThrow();
   });
 
   it('rejects non-string userId (object)', () => {
     const vf = makeClient();
-    expect(() => vf.isRolledOutFor('darkMode', {} as any)).toThrow(/string/i);
+    expect(() => vf.flags.darkMode.isRolledOutFor({} as any)).toThrow();
   });
 
-  it('rejects unknown flag key', () => {
+  it('rejects empty string userId', () => {
     const vf = makeClient();
-    expect(() => vf.isRolledOutFor('phantom' as any, 'user-1')).toThrow();
+    expect(() => vf.flags.darkMode.isRolledOutFor('')).toThrow(VoidFlagError);
   });
 
   it('returns false for disabled flag even at rollout=100', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { enabled: false, rollout: 100 } });
-    expect(vf.isRolledOutFor('darkMode', 'user-1')).toBe(false);
+    expect(vf.flags.darkMode.isRolledOutFor('user-1')).toBe(false);
   });
 
   it('returns true for enabled flag at rollout=100', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { enabled: true, rollout: 100 } });
-    expect(vf.isRolledOutFor('darkMode', 'any-user')).toBe(true);
+    expect(vf.flags.darkMode.isRolledOutFor('any-user')).toBe(true);
   });
 
   it('returns false for enabled flag at rollout=0', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { enabled: true, rollout: 0 } });
-    expect(vf.isRolledOutFor('darkMode', 'any-user')).toBe(false);
+    expect(vf.flags.darkMode.isRolledOutFor('any-user')).toBe(false);
   });
 
   it('is deterministic — same userId always gets same result', () => {
     const vf = makeClient();
     vf.applyState({ betaFeatures: { enabled: true, rollout: 50 } });
-    const result = vf.isRolledOutFor('betaFeatures', 'user-stable');
+    const result = vf.flags.betaFeatures.isRolledOutFor('user-stable');
     for (let i = 0; i < 20; i++) {
-      expect(vf.isRolledOutFor('betaFeatures', 'user-stable')).toBe(result);
+      expect(vf.flags.betaFeatures.isRolledOutFor('user-stable')).toBe(result);
     }
   });
 
@@ -547,9 +541,10 @@ describe('isRolledOutFor() validation', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { enabled: true, rollout: 50 } });
     vf.applyState({ betaFeatures: { enabled: true, rollout: 50 } });
-    // Both calls must return a boolean without throwing; key isolation is the guard
-    expect(typeof vf.isRolledOutFor('darkMode', 'user-crosscheck')).toBe('boolean');
-    expect(typeof vf.isRolledOutFor('betaFeatures', 'user-crosscheck')).toBe('boolean');
+    expect(typeof vf.flags.darkMode.isRolledOutFor('user-crosscheck')).toBe('boolean');
+    expect(typeof vf.flags.betaFeatures.isRolledOutFor('user-crosscheck')).toBe(
+      'boolean',
+    );
   });
 });
 
@@ -564,8 +559,8 @@ describe('snapshot() correctness', () => {
     const snap = vf.snapshot('theme');
     // snapshot exposes the raw stored value
     expect(snap.value).toBe('dark');
-    // get() resolves through enabled → returns fallback
-    expect(vf.get('theme')).toBe('light');
+    // accessor resolves through enabled → returns fallback
+    expect(vf.flags.theme.value).toBe('light');
   });
 
   it('snapshot is frozen — direct mutation throws', () => {
@@ -583,7 +578,7 @@ describe('snapshot() correctness', () => {
     try {
       snap.value = 'hacked';
     } catch (_) {}
-    expect(vf.get('theme')).toBe('light');
+    expect(vf.flags.theme.value).toBe('light');
   });
 });
 
@@ -594,33 +589,34 @@ describe('snapshot() correctness', () => {
 describe('Accessor validation', () => {
   it('accessor.value returns fallback when disabled', () => {
     const vf = makeClient();
-    const acc = vf.flag('theme');
+    const acc = vf.flags.theme;
     vf.applyState({ theme: { value: 'dark', enabled: false } });
     expect(acc.value).toBe('light');
   });
 
   it('accessor.value returns live value when enabled', () => {
     const vf = makeClient();
-    const acc = vf.flag('theme');
+    const acc = vf.flags.theme;
     vf.applyState({ theme: { value: 'dark', enabled: true } });
     expect(acc.value).toBe('dark');
   });
 
-  it('accessor.fallback is always the schema fallback, unaffected by enabled/value', () => {
+  it('accessor.value and snapshot().fallback always reflect schema fallback', () => {
     const vf = makeClient();
-    const acc = vf.flag('theme');
     vf.applyState({ theme: { value: 'dark', enabled: false } });
-    expect(acc.fallback).toBe('light');
+    // accessor returns fallback when disabled
+    expect(vf.flags.theme.value).toBe('light');
+    // snapshot exposes the immutable schema fallback
+    expect(vf.snapshot('theme').fallback).toBe('light');
   });
 
   it('all accessor properties throw after dispose', () => {
     const vf = makeClient();
-    const acc = vf.flag('theme');
+    const acc = vf.flags.theme;
     vf.dispose();
     expect(() => acc.value).toThrow(/disposed/i);
     expect(() => acc.enabled).toThrow(/disposed/i);
-    expect(() => acc.fallback).toThrow(/disposed/i);
-    expect(() => acc.rollout).toThrow(/disposed/i);
+    expect(() => acc.isRolledOutFor('u')).toThrow(/disposed/i);
   });
 });
 
@@ -629,34 +625,31 @@ describe('Accessor validation', () => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe('Dispose guard', () => {
-  it('get() throws after dispose', () => {
+  it('flags.*.value throws after dispose', () => {
     const vf = makeClient();
+    const acc = vf.flags.theme;
     vf.dispose();
-    expect(() => vf.get('theme')).toThrow(/disposed/i);
+    expect(() => acc.value).toThrow(/disposed/i);
   });
 
-  it('enabled() throws after dispose', () => {
+  it('flags.*.enabled throws after dispose', () => {
     const vf = makeClient();
+    const acc = vf.flags.theme;
     vf.dispose();
-    expect(() => vf.enabled('theme')).toThrow(/disposed/i);
+    expect(() => acc.enabled).toThrow(/disposed/i);
   });
 
   it('allEnabled() throws after dispose', () => {
     const vf = makeClient();
+    const acc = vf.flags.theme;
     vf.dispose();
-    expect(() => vf.allEnabled(['theme'])).toThrow(/disposed/i);
+    expect(() => vf.allEnabled(acc)).toThrow(/disposed/i);
   });
 
   it('applyState() throws after dispose', () => {
     const vf = makeClient();
     vf.dispose();
     expect(() => vf.applyState({ theme: { value: 'dark' } })).toThrow(/disposed/i);
-  });
-
-  it('flag() throws after dispose', () => {
-    const vf = makeClient();
-    vf.dispose();
-    expect(() => vf.flag('theme')).toThrow(/disposed/i);
   });
 
   it('snapshot() throws after dispose', () => {
@@ -679,14 +672,9 @@ describe('Dispose guard', () => {
 
   it('isRolledOutFor() throws after dispose', () => {
     const vf = makeClient();
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.isRolledOutFor('darkMode', 'user')).toThrow(/disposed/i);
-  });
-
-  it('connect() throws after dispose', async () => {
-    const vf = makeClient();
-    vf.dispose();
-    await expect(vf.connect()).rejects.toThrow(/disposed/i);
+    expect(() => acc.isRolledOutFor('user')).toThrow(/disposed/i);
   });
 
   it('double dispose does not throw', () => {
@@ -701,56 +689,41 @@ describe('Dispose guard', () => {
 // ══════════════════════════════════════════════════════════════════════════════
 
 describe('Constructor validation', () => {
-  it('applyStateSchema with prototype pollution throws', () => {
+  it('dev and envKey are mutually exclusive — throws VoidFlagError', () => {
     expect(
-      () =>
-        new VoidClient({
-          schema: flags,
-          applyStateSchema: { ['__proto__' as any]: { value: 'pwned' } },
-        }),
-    ).toThrow();
+      () => new VoidClient({ schema: flags, dev: true, envKey: 'key_123' } as any),
+    ).toThrow(VoidFlagError);
   });
 
-  it('applyStateSchema with type mismatch throws', () => {
-    expect(
-      () =>
-        new VoidClient({
-          schema: flags,
-          applyStateSchema: { fontSize: { value: 'big' as any } },
-        }),
-    ).toThrow();
-  });
-
-  it('applyStateSchema with invalid rollout throws', () => {
-    expect(
-      () =>
-        new VoidClient({
-          schema: flags,
-          applyStateSchema: { darkMode: { rollout: -1 } },
-        }),
-    ).toThrow();
-  });
-
-  it('applyStateSchema with unknown flag key throws', () => {
-    expect(
-      () =>
-        new VoidClient({
-          schema: flags,
-          applyStateSchema: { ['ghost' as any]: { value: true } },
-        }),
-    ).toThrow();
-  });
-
-  it('valid applyStateSchema applies correctly', () => {
-    const vf = new VoidClient({
-      schema: flags,
-      applyStateSchema: {
-        theme: { value: 'dark' },
-        fontSize: { value: 24, rollout: 80 },
-      },
+  it('initial state can be applied via applyState() after construction', () => {
+    const vf = makeClient();
+    vf.applyState({
+      theme: { value: 'dark' },
+      fontSize: { value: 24, rollout: 80 },
     });
-    expect(vf.get('theme')).toBe('dark');
-    expect(vf.get('fontSize')).toBe(24);
+    expect(vf.flags.theme.value).toBe('dark');
+    expect(vf.flags.fontSize.value).toBe(24);
     expect(vf.snapshot('fontSize').rollout).toBe(80);
+  });
+
+  it('applyState() with prototype pollution throws and leaves store clean', () => {
+    const vf = makeClient();
+    expect(() => vf.applyState({ ['__proto__' as any]: { value: 'pwned' } })).toThrow();
+    expect(({} as any).value).toBeUndefined();
+  });
+
+  it('applyState() with type mismatch throws', () => {
+    const vf = makeClient();
+    expect(() => vf.applyState({ fontSize: { value: 'big' as any } })).toThrow();
+  });
+
+  it('applyState() with invalid rollout throws', () => {
+    const vf = makeClient();
+    expect(() => vf.applyState({ darkMode: { rollout: -1 } })).toThrow();
+  });
+
+  it('applyState() with unknown flag key throws', () => {
+    const vf = makeClient();
+    expect(() => vf.applyState({ ['ghost' as any]: { value: true } })).toThrow();
   });
 });

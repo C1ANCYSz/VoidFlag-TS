@@ -32,7 +32,7 @@ const schema = defineFlags({
   itemsPerPage: number().fallback(25),
 });
 
-// Small schema to exercise eager-loading path (< 2 keys)
+// Small schema for lazy-loading tests
 const SMALL_SCHEMA = defineFlags({
   onlyOne: boolean().fallback(true),
 });
@@ -42,7 +42,7 @@ type Schema = typeof schema;
 let vf: VoidClient<Schema>;
 
 beforeEach(() => {
-  vf = new VoidClient({ schema });
+  vf = new VoidClient({ schema, dev: true });
 });
 
 // ----------------------------------------------------------------
@@ -51,18 +51,18 @@ beforeEach(() => {
 
 describe('constructor', () => {
   it('seeds every flag with its fallback as the initial value', () => {
-    expect(vf.get('darkMode')).toBe(false);
-    expect(vf.get('paymentSwitch')).toBe(false);
-    expect(vf.get('themeColor')).toBe('#000000');
-    expect(vf.get('checkoutVariant')).toBe('control');
-    expect(vf.get('fontSize')).toBe(16);
-    expect(vf.get('maxUploadMb')).toBe(10);
-    expect(vf.get('requestTimeoutMs')).toBe(3000);
+    expect(vf.flags.darkMode.value).toBe(false);
+    expect(vf.flags.paymentSwitch.value).toBe(false);
+    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.checkoutVariant.value).toBe('control');
+    expect(vf.flags.fontSize.value).toBe(16);
+    expect(vf.flags.maxUploadMb.value).toBe(10);
+    expect(vf.flags.requestTimeoutMs.value).toBe(3000);
   });
 
   it('marks every flag as enabled on construction', () => {
     for (const key of Object.keys(schema) as (keyof Schema)[]) {
-      expect(vf.enabled(key)).toBe(true);
+      expect(vf.flags[key].enabled).toBe(true);
     }
   });
 
@@ -79,10 +79,12 @@ describe('constructor', () => {
   });
 
   it('two separate instances are fully isolated', () => {
-    const a = new VoidClient({ schema });
-    const b = new VoidClient({ schema });
+    const a = new VoidClient({ schema, dev: true });
+    const b = new VoidClient({ schema, dev: true });
     a.hydrate('themeColor', { value: 'red' });
-    expect(b.get('themeColor')).toBe('#000000');
+    expect(b.flags.themeColor.value).toBe('#000000');
+    a.dispose();
+    b.dispose();
   });
 });
 
@@ -91,176 +93,182 @@ describe('constructor', () => {
 // ----------------------------------------------------------------
 
 describe('accessor shape contracts', () => {
-  it('boolean accessor has enabled + value + fallback — no rollout', () => {
-    const node = vf.flag('darkMode');
-    expect('enabled' in node).toBe(true);
+  // Accessor exposes: value, enabled, isRolledOutFor
+  // Snapshot exposes: value, fallback, enabled, rollout — use snapshot() for those
+
+  it('boolean accessor has value, enabled, and isRolledOutFor', () => {
+    const node = vf.flags.darkMode;
     expect('value' in node).toBe(true);
-    expect('fallback' in node).toBe(true);
-    expect('rollout' in node).toBe(true);
+    expect('enabled' in node).toBe(true);
+    expect('isRolledOutFor' in node).toBe(true);
   });
 
-  it('string accessor has all four fields', () => {
-    const node = vf.flag('themeColor');
-    expect('enabled' in node).toBe(true);
+  it('string accessor has value, enabled, and isRolledOutFor', () => {
+    const node = vf.flags.themeColor;
     expect('value' in node).toBe(true);
-    expect('fallback' in node).toBe(true);
-    expect('rollout' in node).toBe(true);
+    expect('enabled' in node).toBe(true);
+    expect('isRolledOutFor' in node).toBe(true);
   });
 
-  it('number accessor has all four fields', () => {
-    const node = vf.flag('fontSize');
-    expect('enabled' in node).toBe(true);
+  it('number accessor has value, enabled, and isRolledOutFor', () => {
+    const node = vf.flags.fontSize;
     expect('value' in node).toBe(true);
-    expect('fallback' in node).toBe(true);
-    expect('rollout' in node).toBe(true);
+    expect('enabled' in node).toBe(true);
+    expect('isRolledOutFor' in node).toBe(true);
+  });
+
+  it('accessor does not expose fallback or rollout — use snapshot() for those', () => {
+    const node = vf.flags.themeColor as any;
+    expect('fallback' in node).toBe(false);
+    expect('rollout' in node).toBe(false);
   });
 
   it('accessor is frozen — direct mutation throws', () => {
-    const node = vf.flag('themeColor');
+    const node = vf.flags.themeColor as any;
     expect(Object.isFrozen(node)).toBe(true);
     expect(() => {
-      (node as any).value = 'hacked';
+      node.value = 'hacked';
     }).toThrow();
     expect(() => {
-      (node as any).enabled = false;
+      node.enabled = false;
     }).toThrow();
     expect(() => {
-      (node as any).rollout = 0;
-    }).toThrow();
-    expect(() => {
-      (node as any).injected = true;
+      node.injected = true;
     }).toThrow();
   });
 });
 
 // ----------------------------------------------------------------
-// get()
+// flags.* live reads
 // ----------------------------------------------------------------
 
-describe('get()', () => {
-  it('returns the live value when enabled', () => {
+describe('flags.* live reads', () => {
+  it('.value returns the live value when enabled (string)', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: true });
-    expect(vf.get('themeColor')).toBe('green');
+    expect(vf.flags.themeColor.value).toBe('green');
   });
 
-  it('returns the fallback when disabled — ignores value', () => {
+  it('.value returns the fallback when disabled — ignores stored value', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: false });
-    expect(vf.get('themeColor')).toBe('#000000');
+    expect(vf.flags.themeColor.value).toBe('#000000');
   });
 
-  it('returns correct boolean value', () => {
+  it('.value returns correct boolean value', () => {
     vf.hydrate('darkMode', { value: true });
-    expect(vf.get('darkMode')).toBe(true);
+    expect(vf.flags.darkMode.value).toBe(true);
   });
 
-  it('returns correct number value', () => {
+  it('.value returns correct number value', () => {
     vf.hydrate('fontSize', { value: 24 });
-    expect(vf.get('fontSize')).toBe(24);
+    expect(vf.flags.fontSize.value).toBe(24);
   });
 
-  it('returns fallback for number when disabled', () => {
+  it('.value returns fallback for number when disabled', () => {
     vf.hydrate('fontSize', { value: 24, enabled: false });
-    expect(vf.get('fontSize')).toBe(16);
+    expect(vf.flags.fontSize.value).toBe(16);
   });
 
-  it('flipping enabled back to true restores value', () => {
+  it('flipping enabled back to true restores live value', () => {
     vf.hydrate('checkoutVariant', { value: 'treatment', enabled: false });
-    expect(vf.get('checkoutVariant')).toBe('control');
+    expect(vf.flags.checkoutVariant.value).toBe('control');
     vf.hydrate('checkoutVariant', { enabled: true });
-    expect(vf.get('checkoutVariant')).toBe('treatment');
+    expect(vf.flags.checkoutVariant.value).toBe('treatment');
   });
 
   it('value equal to fallback is still returned correctly', () => {
     vf.hydrate('checkoutVariant', { value: 'control', enabled: true });
-    expect(vf.get('checkoutVariant')).toBe('control');
-  });
-
-  it('throws VoidFlagError for unknown key', () => {
-    // @ts-expect-error intentional invalid key
-    expect(() => vf.get('doesNotExist')).toThrow(VoidFlagError);
+    expect(vf.flags.checkoutVariant.value).toBe('control');
   });
 });
 
 // ----------------------------------------------------------------
-// enabled() / allEnabled()
+// accessor .enabled
 // ----------------------------------------------------------------
 
-describe('enabled()', () => {
+describe('accessor .enabled', () => {
   it('is true for all flags on init', () => {
-    expect(vf.enabled('darkMode')).toBe(true);
-    expect(vf.enabled('themeColor')).toBe(true);
-    expect(vf.enabled('fontSize')).toBe(true);
+    expect(vf.flags.darkMode.enabled).toBe(true);
+    expect(vf.flags.themeColor.enabled).toBe(true);
+    expect(vf.flags.fontSize.enabled).toBe(true);
   });
 
   it('reflects false after hydrating enabled: false', () => {
     vf.hydrate('paymentSwitch', { enabled: false });
-    expect(vf.enabled('paymentSwitch')).toBe(false);
+    expect(vf.flags.paymentSwitch.enabled).toBe(false);
   });
 
   it('reflects true after re-enabling', () => {
     vf.hydrate('paymentSwitch', { enabled: false });
     vf.hydrate('paymentSwitch', { enabled: true });
-    expect(vf.enabled('paymentSwitch')).toBe(true);
+    expect(vf.flags.paymentSwitch.enabled).toBe(true);
   });
 });
+
+// ----------------------------------------------------------------
+// allEnabled()
+// ----------------------------------------------------------------
 
 describe('allEnabled()', () => {
-  it('returns true when every listed flag is enabled', () => {
-    expect(vf.allEnabled(['darkMode', 'paymentSwitch', 'fontSize'])).toBe(true);
+  it('returns true when every passed accessor is enabled', () => {
+    expect(
+      vf.allEnabled(vf.flags.darkMode, vf.flags.paymentSwitch, vf.flags.fontSize),
+    ).toBe(true);
   });
 
-  it('returns false when any one flag is disabled', () => {
+  it('returns false when any one accessor is disabled', () => {
     vf.hydrate('paymentSwitch', { enabled: false });
-    expect(vf.allEnabled(['darkMode', 'paymentSwitch', 'fontSize'])).toBe(false);
+    expect(
+      vf.allEnabled(vf.flags.darkMode, vf.flags.paymentSwitch, vf.flags.fontSize),
+    ).toBe(false);
   });
 
-  it('returns false when multiple flags are disabled', () => {
+  it('returns false when multiple accessors are disabled', () => {
     vf.hydrate('darkMode', { enabled: false });
     vf.hydrate('paymentSwitch', { enabled: false });
-    expect(vf.allEnabled(['darkMode', 'paymentSwitch'])).toBe(false);
+    expect(vf.allEnabled(vf.flags.darkMode, vf.flags.paymentSwitch)).toBe(false);
   });
 
-  it('returns true for empty array (vacuous truth)', () => {
-    expect(vf.allEnabled([])).toBe(true);
+  it('returns true for no arguments (vacuous truth)', () => {
+    expect(vf.allEnabled()).toBe(true);
   });
 
-  it('returns true for a single enabled flag', () => {
-    expect(vf.allEnabled(['maintenanceMode'])).toBe(true);
+  it('returns true for a single enabled accessor', () => {
+    expect(vf.allEnabled(vf.flags.maintenanceMode)).toBe(true);
   });
 });
 
 // ----------------------------------------------------------------
-// flag() / flags.*
+// flags.* reference stability
 // ----------------------------------------------------------------
 
-describe('flag() / flags.*', () => {
-  it('flag() returns the same object reference on every call', () => {
-    expect(vf.flag('themeColor')).toBe(vf.flag('themeColor'));
-    expect(vf.flag('darkMode')).toBe(vf.flag('darkMode'));
-    expect(vf.flag('fontSize')).toBe(vf.flag('fontSize'));
+describe('flags.* reference stability', () => {
+  it('flags.* returns the same object reference on every call', () => {
+    expect(vf.flags.themeColor).toBe(vf.flags.themeColor);
+    expect(vf.flags.darkMode).toBe(vf.flags.darkMode);
+    expect(vf.flags.fontSize).toBe(vf.flags.fontSize);
   });
 
-  it('flags.* returns the exact same reference as flag()', () => {
-    expect(vf.flags.themeColor).toBe(vf.flag('themeColor'));
-    expect(vf.flags.fontSize).toBe(vf.flag('fontSize'));
-    expect(vf.flags.darkMode).toBe(vf.flag('darkMode'));
+  it('flags.* returns the exact same reference across all schema keys', () => {
+    for (const key of Object.keys(schema) as (keyof Schema)[]) {
+      expect(vf.flags[key]).toBe(vf.flags[key]);
+    }
   });
 
   it('accessor .value is live — reflects hydrate() immediately', () => {
-    const acc = vf.flag('themeColor');
+    const acc = vf.flags.themeColor;
     expect(acc.value).toBe('#000000');
     vf.hydrate('themeColor', { value: 'purple', enabled: true });
     expect(acc.value).toBe('purple');
   });
 
   it('accessor .value returns fallback when disabled', () => {
-    const acc = vf.flag('themeColor');
+    const acc = vf.flags.themeColor;
     vf.hydrate('themeColor', { value: 'purple', enabled: false });
     expect(acc.value).toBe('#000000');
   });
 
   it('accessor .enabled is live', () => {
-    const acc = vf.flag('darkMode');
+    const acc = vf.flags.darkMode;
     expect(acc.enabled).toBe(true);
     vf.hydrate('darkMode', { enabled: false });
     expect(acc.enabled).toBe(false);
@@ -268,49 +276,12 @@ describe('flag() / flags.*', () => {
     expect(acc.enabled).toBe(true);
   });
 
-  it('accessor .fallback never changes when value changes', () => {
-    const acc = vf.flag('themeColor');
-    vf.hydrate('themeColor', { value: 'orange' });
-    expect(acc.fallback).toBe('#000000');
-    vf.hydrate('themeColor', { value: 'red' });
-    expect(acc.fallback).toBe('#000000');
-  });
-
-  it('boolean accessor has no rollout property', () => {
-    expect('rollout' in vf.flags.darkMode).toBe(true);
-    expect('rollout' in vf.flags.paymentSwitch).toBe(true);
-    expect('rollout' in vf.flags.maintenanceMode).toBe(true);
-    expect('rollout' in vf.flags.betaAccess).toBe(true);
-  });
-
-  it('string and number accessors have rollout property', () => {
-    expect('rollout' in vf.flags.themeColor).toBe(true);
-    expect('rollout' in vf.flags.checkoutVariant).toBe(true);
-    expect('rollout' in vf.flags.fontSize).toBe(true);
-    expect('rollout' in vf.flags.maxUploadMb).toBe(true);
-  });
-
-  it('variant rollout defaults to 100 when not hydrated', () => {
-    expect(vf.flags.themeColor.rollout).toBe(100);
-    expect(vf.flags.fontSize.rollout).toBe(100);
-  });
-
-  it('variant rollout reflects hydrated value live', () => {
-    vf.hydrate('checkoutVariant', { rollout: 42 });
-    expect(vf.flags.checkoutVariant.rollout).toBe(42);
-  });
-
   it('multiple rapid hydrations — accessor always reads the latest', () => {
-    const acc = vf.flag('bannerCopy');
+    const acc = vf.flags.bannerCopy;
     for (const v of ['A', 'B', 'C', 'D', 'E', 'F', 'G']) {
       vf.hydrate('bannerCopy', { value: v });
       expect(acc.value).toBe(v);
     }
-  });
-
-  it('throws VoidFlagError for unknown key', () => {
-    // @ts-expect-error intentional invalid key
-    expect(() => vf.flag('doesNotExist')).toThrow(VoidFlagError);
   });
 });
 
@@ -321,9 +292,9 @@ describe('flag() / flags.*', () => {
 describe('hydrate()', () => {
   it('partial hydration only changes specified fields', () => {
     vf.hydrate('fontSize', { value: 32 });
-    expect(vf.get('fontSize')).toBe(32);
-    expect(vf.enabled('fontSize')).toBe(true); // untouched
-    expect(vf.flags.fontSize.fallback).toBe(16); // untouched
+    expect(vf.flags.fontSize.value).toBe(32);
+    expect(vf.flags.fontSize.enabled).toBe(true); // untouched
+    expect(vf.snapshot('fontSize').fallback).toBe(16); // untouched
   });
 
   it('can update value, enabled, and rollout independently', () => {
@@ -332,45 +303,37 @@ describe('hydrate()', () => {
     vf.hydrate('checkoutVariant', { enabled: false });
 
     expect(vf.flags.checkoutVariant.value).toBe('control'); // disabled → fallback
-    expect(vf.flags.checkoutVariant.rollout).toBe(20);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(20);
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
   });
 
-  it('hydrating fallback throws Voidflag Error', () => {
+  it('hydrating an unknown field (fallback) throws VoidFlagError and leaves store untouched', () => {
     expect(() =>
       vf.hydrate('themeColor', { fallback: 'white', enabled: false } as any),
     ).toThrow(VoidFlagError);
-    expect(vf.get('themeColor')).toBe('#000000');
-    expect(vf.flags.themeColor.fallback).toBe('#000000');
+    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
   });
 
-  it('fallback field always reflects the fallback regardless of enabled state', () => {
+  it('snapshot().fallback always reflects the schema fallback regardless of enabled state', () => {
     vf.hydrate('themeColor', { value: 'dark', enabled: true });
-    expect(vf.flag('themeColor').fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     vf.hydrate('themeColor', { enabled: false });
-    expect(vf.flag('themeColor').fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
   });
 
   it('simulated poll cycle — sequential hydrations stay consistent', () => {
-    vf.hydrate('checkoutVariant', {
-      value: 'treatment',
-      enabled: true,
-      rollout: 50,
-    });
-    expect(vf.get('checkoutVariant')).toBe('treatment');
-    expect(vf.flags.checkoutVariant.rollout).toBe(50);
+    vf.hydrate('checkoutVariant', { value: 'treatment', enabled: true, rollout: 50 });
+    expect(vf.flags.checkoutVariant.value).toBe('treatment');
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
 
     vf.hydrate('checkoutVariant', { enabled: false });
-    expect(vf.get('checkoutVariant')).toBe('control');
+    expect(vf.flags.checkoutVariant.value).toBe('control');
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
 
-    vf.hydrate('checkoutVariant', {
-      enabled: true,
-      value: 'treatment-v2',
-      rollout: 100,
-    });
-    expect(vf.get('checkoutVariant')).toBe('treatment-v2');
-    expect(vf.flags.checkoutVariant.rollout).toBe(100);
+    vf.hydrate('checkoutVariant', { enabled: true, value: 'treatment-v2', rollout: 100 });
+    expect(vf.flags.checkoutVariant.value).toBe('treatment-v2');
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(100);
   });
 
   it('hydrating all 12 flags — all reflect immediately', () => {
@@ -387,51 +350,51 @@ describe('hydrate()', () => {
     vf.hydrate('requestTimeoutMs', { value: 5000, enabled: false });
     vf.hydrate('itemsPerPage', { value: 50 });
 
-    expect(vf.get('darkMode')).toBe(true);
-    expect(vf.get('paymentSwitch')).toBe(true);
-    expect(vf.get('maintenanceMode')).toBe(false); // disabled → fallback
-    expect(vf.get('betaAccess')).toBe(true);
-    expect(vf.get('themeColor')).toBe('red');
-    expect(vf.flags.checkoutVariant.rollout).toBe(50);
-    expect(vf.get('apiRegion')).toBe('eu-west-1');
-    expect(vf.get('bannerCopy')).toBe('New Feature!');
-    expect(vf.get('fontSize')).toBe(18);
-    expect(vf.get('maxUploadMb')).toBe(100);
-    expect(vf.get('requestTimeoutMs')).toBe(3000); // disabled → fallback
-    expect(vf.get('itemsPerPage')).toBe(50);
+    expect(vf.flags.darkMode.value).toBe(true);
+    expect(vf.flags.paymentSwitch.value).toBe(true);
+    expect(vf.flags.maintenanceMode.value).toBe(false); // disabled → fallback
+    expect(vf.flags.betaAccess.value).toBe(true);
+    expect(vf.flags.themeColor.value).toBe('red');
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
+    expect(vf.flags.apiRegion.value).toBe('eu-west-1');
+    expect(vf.flags.bannerCopy.value).toBe('New Feature!');
+    expect(vf.flags.fontSize.value).toBe(18);
+    expect(vf.flags.maxUploadMb.value).toBe(100);
+    expect(vf.flags.requestTimeoutMs.value).toBe(3000); // disabled → fallback
+    expect(vf.flags.itemsPerPage.value).toBe(50);
   });
 });
 
 // ----------------------------------------------------------------
-// isRolledOutFor()
+// isRolledOutFor() — via accessor
 // ----------------------------------------------------------------
 
 describe('isRolledOutFor()', () => {
-  it('returns true for all users when rollout is 100 (default)', () => {
+  it('returns true for all users when rollout is 100 (default for string/number)', () => {
     for (const u of ['alice', 'bob', 'carol', 'dave', 'eve', 'frank', 'grace']) {
-      expect(vf.isRolledOutFor('checkoutVariant', u)).toBe(true);
+      expect(vf.flags.checkoutVariant.isRolledOutFor(u)).toBe(true);
     }
   });
 
   it('returns false for all users when rollout is 0', () => {
     vf.hydrate('checkoutVariant', { rollout: 0 });
     for (const u of ['alice', 'bob', 'carol', 'dave', 'eve']) {
-      expect(vf.isRolledOutFor('checkoutVariant', u)).toBe(false);
+      expect(vf.flags.checkoutVariant.isRolledOutFor(u)).toBe(false);
     }
   });
 
   it('returns false for all users when flag is disabled regardless of rollout', () => {
     vf.hydrate('checkoutVariant', { rollout: 100, enabled: false });
     for (const u of ['alice', 'bob', 'carol']) {
-      expect(vf.isRolledOutFor('checkoutVariant', u)).toBe(false);
+      expect(vf.flags.checkoutVariant.isRolledOutFor(u)).toBe(false);
     }
   });
 
   it('is deterministic — same user always gets same result', () => {
     vf.hydrate('checkoutVariant', { rollout: 50 });
-    const r1 = vf.isRolledOutFor('checkoutVariant', 'user-abc-123');
-    const r2 = vf.isRolledOutFor('checkoutVariant', 'user-abc-123');
-    const r3 = vf.isRolledOutFor('checkoutVariant', 'user-abc-123');
+    const r1 = vf.flags.checkoutVariant.isRolledOutFor('user-abc-123');
+    const r2 = vf.flags.checkoutVariant.isRolledOutFor('user-abc-123');
+    const r3 = vf.flags.checkoutVariant.isRolledOutFor('user-abc-123');
     expect(r1).toBe(r2);
     expect(r2).toBe(r3);
   });
@@ -439,64 +402,72 @@ describe('isRolledOutFor()', () => {
   it('distributes ~50% of users at 50% rollout', () => {
     vf.hydrate('checkoutVariant', { rollout: 50 });
     const users = Array.from({ length: 100 }, (_, i) => `user-${i}`);
-    const included = users.filter((u) => vf.isRolledOutFor('checkoutVariant', u)).length;
+    const included = users.filter((u) =>
+      vf.flags.checkoutVariant.isRolledOutFor(u),
+    ).length;
     expect(included).toBeGreaterThan(29);
     expect(included).toBeLessThan(71);
   });
 
   it('rollout percentage change is respected immediately', () => {
     vf.hydrate('checkoutVariant', { rollout: 100 });
-    expect(vf.isRolledOutFor('checkoutVariant', 'user-x')).toBe(true);
+    expect(vf.flags.checkoutVariant.isRolledOutFor('user-x')).toBe(true);
     vf.hydrate('checkoutVariant', { rollout: 0 });
-    expect(vf.isRolledOutFor('checkoutVariant', 'user-x')).toBe(false);
+    expect(vf.flags.checkoutVariant.isRolledOutFor('user-x')).toBe(false);
   });
 
   it('rollout >= 100 is treated as full rollout', () => {
     vf.hydrate('checkoutVariant', { rollout: 100 });
-    expect(vf.isRolledOutFor('checkoutVariant', 'anyone')).toBe(true);
+    expect(vf.flags.checkoutVariant.isRolledOutFor('anyone')).toBe(true);
   });
 
   it('rollout <= 0 is treated as no rollout', () => {
     vf.hydrate('checkoutVariant', { rollout: 0 });
-    expect(vf.isRolledOutFor('checkoutVariant', 'anyone')).toBe(false);
+    expect(vf.flags.checkoutVariant.isRolledOutFor('anyone')).toBe(false);
   });
+
   it('bucket is stable across separate client instances for the same schema', () => {
-    const vf2 = new VoidClient({ schema });
+    const vf2 = new VoidClient({ schema, dev: true });
     vf.hydrate('checkoutVariant', { rollout: 50 });
     vf2.hydrate('checkoutVariant', { rollout: 50 });
     for (const u of Array.from({ length: 30 }, (_, i) => `stable-user-${i}`)) {
-      expect(vf.isRolledOutFor('checkoutVariant', u)).toBe(
-        vf2.isRolledOutFor('checkoutVariant', u),
+      expect(vf.flags.checkoutVariant.isRolledOutFor(u)).toBe(
+        vf2.flags.checkoutVariant.isRolledOutFor(u),
       );
     }
+    vf2.dispose();
   });
 
   it('different flag keys produce independently hashed buckets for the same userId', () => {
     vf.hydrate('checkoutVariant', { rollout: 50 });
     vf.hydrate('apiRegion', { rollout: 50 });
-    expect(typeof vf.isRolledOutFor('checkoutVariant', 'split-user')).toBe('boolean');
-    expect(typeof vf.isRolledOutFor('apiRegion', 'split-user')).toBe('boolean');
+    expect(typeof vf.flags.checkoutVariant.isRolledOutFor('split-user')).toBe('boolean');
+    expect(typeof vf.flags.apiRegion.isRolledOutFor('split-user')).toBe('boolean');
   });
 
-  it('empty string userId is handled without throwing', () => {
+  it('empty string userId throws', () => {
     vf.hydrate('checkoutVariant', { rollout: 50 });
-    expect(() => vf.isRolledOutFor('checkoutVariant', '')).toThrow();
+    expect(() => vf.flags.checkoutVariant.isRolledOutFor('')).toThrow();
   });
 
-  it('very long userId is handled without throwing', () => {
+  it('very long userId does not throw', () => {
     vf.hydrate('checkoutVariant', { rollout: 50 });
-    expect(() => vf.isRolledOutFor('checkoutVariant', 'u'.repeat(10_000))).not.toThrow();
+    expect(() =>
+      vf.flags.checkoutVariant.isRolledOutFor('u'.repeat(10_000)),
+    ).not.toThrow();
   });
 
-  it('unicode userId is handled without throwing', () => {
+  it('unicode userId does not throw', () => {
     vf.hydrate('checkoutVariant', { rollout: 50 });
-    expect(() => vf.isRolledOutFor('checkoutVariant', '用户-🎯-émoji')).not.toThrow();
+    expect(() => vf.flags.checkoutVariant.isRolledOutFor('用户-🎯-émoji')).not.toThrow();
   });
 
   it('rollout 1% — only a tiny fraction of users pass', () => {
     vf.hydrate('checkoutVariant', { rollout: 1 });
     const users = Array.from({ length: 1000 }, (_, i) => `u-${i}`);
-    const included = users.filter((u) => vf.isRolledOutFor('checkoutVariant', u)).length;
+    const included = users.filter((u) =>
+      vf.flags.checkoutVariant.isRolledOutFor(u),
+    ).length;
     expect(included).toBeGreaterThan(0);
     expect(included).toBeLessThan(30);
   });
@@ -504,14 +475,11 @@ describe('isRolledOutFor()', () => {
   it('rollout 99% — almost all users pass', () => {
     vf.hydrate('checkoutVariant', { rollout: 99 });
     const users = Array.from({ length: 1000 }, (_, i) => `u-${i}`);
-    const included = users.filter((u) => vf.isRolledOutFor('checkoutVariant', u)).length;
+    const included = users.filter((u) =>
+      vf.flags.checkoutVariant.isRolledOutFor(u),
+    ).length;
     expect(included).toBeGreaterThan(970);
     expect(included).toBeLessThanOrEqual(1000);
-  });
-
-  it('throws VoidFlagError for unknown key', () => {
-    // @ts-expect-error intentional invalid key
-    expect(() => vf.isRolledOutFor('doesNotExist', 'user')).toThrow(VoidFlagError);
   });
 });
 
@@ -527,7 +495,7 @@ describe('snapshot()', () => {
   it('is a point-in-time copy — not live', () => {
     const snap = vf.snapshot('themeColor');
     vf.hydrate('themeColor', { value: 'red' });
-    expect((snap as any).value).toBe('#000000');
+    expect(snap.value).toBe('#000000');
   });
 
   it('mutation attempt on snapshot throws', () => {
@@ -541,37 +509,57 @@ describe('snapshot()', () => {
     expect(vf.snapshot('themeColor')).not.toBe(vf.snapshot('themeColor'));
   });
 
-  it('boolean snapshot has no rollout key', () => {
-    expect('rollout' in vf.snapshot('darkMode')).toBe(true);
-  });
-
-  it('boolean snapshot has exactly (enabled, value, fallback, rollout)', () => {
-    const snap = vf.snapshot('paymentSwitch');
-    expect(Object.keys(snap).sort()).toEqual(
-      ['enabled', 'fallback', 'value', 'rollout'].sort(),
+  it('snapshot has exactly (enabled, value, fallback, rollout) for all flag types', () => {
+    const boolSnap = vf.snapshot('darkMode');
+    expect(Object.keys(boolSnap).sort()).toEqual(
+      ['enabled', 'fallback', 'rollout', 'value'].sort(),
     );
-    expect('rollout' in snap).toBe(true);
+
+    const strSnap = vf.snapshot('themeColor');
+    expect(Object.keys(strSnap).sort()).toEqual(
+      ['enabled', 'fallback', 'rollout', 'value'].sort(),
+    );
+
+    const numSnap = vf.snapshot('fontSize');
+    expect(Object.keys(numSnap).sort()).toEqual(
+      ['enabled', 'fallback', 'rollout', 'value'].sort(),
+    );
   });
 
-  it('variant snapshot includes rollout', () => {
+  it('boolean snapshot rollout defaults to 0', () => {
+    expect(vf.snapshot('darkMode').rollout).toBe(0);
+  });
+
+  it('string/number snapshot rollout defaults to 100', () => {
+    expect(vf.snapshot('themeColor').rollout).toBe(100);
+    expect(vf.snapshot('fontSize').rollout).toBe(100);
+  });
+
+  it('snapshot rollout reflects hydrated value', () => {
     vf.hydrate('themeColor', { rollout: 60 });
-    expect((vf.snapshot('themeColor') as any).rollout).toBe(60);
+    expect(vf.snapshot('themeColor').rollout).toBe(60);
   });
 
-  it('snapshot reflects disabled state — value is fallback', () => {
+  it('snapshot reflects raw stored value even when disabled (differs from accessor)', () => {
     vf.hydrate('fontSize', { value: 32, enabled: false });
-    const snap = vf.snapshot('fontSize') as any;
-    expect(snap.value).toBe(32);
+    const snap = vf.snapshot('fontSize');
+    expect(snap.value).toBe(32); // raw stored value
     expect(snap.enabled).toBe(false);
     expect(snap.fallback).toBe(16);
+    expect(vf.flags.fontSize.value).toBe(16); // accessor returns fallback
   });
 
   it('two snapshots at different times capture different values', () => {
-    const s1 = vf.snapshot('bannerCopy') as any;
+    const s1 = vf.snapshot('bannerCopy');
     vf.hydrate('bannerCopy', { value: 'Updated!' });
-    const s2 = vf.snapshot('bannerCopy') as any;
+    const s2 = vf.snapshot('bannerCopy');
     expect(s1.value).toBe('Welcome');
     expect(s2.value).toBe('Updated!');
+  });
+
+  it('throws VoidFlagError for unknown key', () => {
+    // @ts-expect-error intentional invalid key
+    expect(() => vf.snapshot('doesNotExist')).toThrow(VoidFlagError);
   });
 });
 
@@ -604,7 +592,7 @@ describe('debugSnapshots()', () => {
   it('returns point-in-time snapshots — not live', () => {
     const snaps = vf.debugSnapshots();
     vf.hydrate('themeColor', { value: 'mutated' });
-    expect((snaps.themeColor as any).value).toBe('#000000');
+    expect(snaps.themeColor.value).toBe('#000000');
   });
 });
 
@@ -619,29 +607,28 @@ describe('dispose()', () => {
     }
   });
 
-  it('get() throws VoidFlagError after dispose', () => {
+  it('flags.*.value throws VoidFlagError after dispose', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.get('darkMode')).toThrow(VoidFlagError);
+    expect(() => acc.value).toThrow(VoidFlagError);
   });
 
-  it('enabled() throws after dispose', () => {
+  it('flags.*.enabled throws after dispose', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.enabled('darkMode')).toThrow(VoidFlagError);
+    expect(() => acc.enabled).toThrow(VoidFlagError);
   });
 
-  it('allEnabled() throws after dispose', () => {
+  it('allEnabled() throws after dispose when passed a disposed accessor', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.allEnabled(['darkMode'])).toThrow(VoidFlagError);
-  });
-
-  it('flag() throws after dispose', () => {
-    vf.dispose();
-    expect(() => vf.flag('darkMode')).toThrow(VoidFlagError);
+    expect(() => vf.allEnabled(acc)).toThrow(VoidFlagError);
   });
 
   it('isRolledOutFor() throws after dispose', () => {
+    const acc = vf.flags.checkoutVariant;
     vf.dispose();
-    expect(() => vf.isRolledOutFor('checkoutVariant', 'user')).toThrow(VoidFlagError);
+    expect(() => acc.isRolledOutFor('user')).toThrow(VoidFlagError);
   });
 
   it('snapshot() throws after dispose', () => {
@@ -654,46 +641,41 @@ describe('dispose()', () => {
     expect(() => vf.debugSnapshots()).toThrow(VoidFlagError);
   });
 
+  it('hydrate() throws after dispose', () => {
+    vf.dispose();
+    expect(() => vf.hydrate('themeColor', { value: 'red' })).toThrow(VoidFlagError);
+  });
+
   it('error message mentions disposed', () => {
     vf.dispose();
     try {
-      vf.get('darkMode');
+      vf.snapshot('darkMode');
     } catch (e) {
       expect((e as VoidFlagError).message).toMatch(/disposed/i);
     }
   });
 
-  it('accessor grabbed before dispose throws on ALL properties after dispose', () => {
-    const strAcc = vf.flag('themeColor');
-    const boolAcc = vf.flag('darkMode');
-    const numAcc = vf.flag('fontSize');
+  it('accessor grabbed before dispose throws on all properties after dispose', () => {
+    const strAcc = vf.flags.themeColor;
+    const boolAcc = vf.flags.darkMode;
+    const numAcc = vf.flags.fontSize;
     vf.dispose();
 
     expect(() => strAcc.value).toThrow(VoidFlagError);
-    expect(() => strAcc.fallback).toThrow(VoidFlagError);
     expect(() => strAcc.enabled).toThrow(VoidFlagError);
-    expect(() => strAcc.rollout).toThrow(VoidFlagError);
+    expect(() => strAcc.isRolledOutFor('u')).toThrow(VoidFlagError);
 
     expect(() => boolAcc.value).toThrow(VoidFlagError);
-    expect(() => boolAcc.fallback).toThrow(VoidFlagError);
     expect(() => boolAcc.enabled).toThrow(VoidFlagError);
 
     expect(() => numAcc.value).toThrow(VoidFlagError);
-    expect(() => numAcc.rollout).toThrow(VoidFlagError);
-  });
-
-  it('flags.* accessor throws after dispose', () => {
-    const acc = vf.flags.themeColor;
-    vf.dispose();
-    expect(() => acc.value).toThrow(VoidFlagError);
-    expect(() => acc.enabled).toThrow(VoidFlagError);
-    expect(() => acc.fallback).toThrow(VoidFlagError);
+    expect(() => numAcc.enabled).toThrow(VoidFlagError);
   });
 
   it('dispose does not bleed into sibling clients', () => {
-    const b = new VoidClient({ schema });
+    const b = new VoidClient({ schema, dev: true });
     vf.dispose();
-    expect(() => b.get('themeColor')).not.toThrow();
+    expect(() => b.flags.themeColor.value).not.toThrow();
     b.dispose();
   });
 });
@@ -714,9 +696,10 @@ describe('VoidFlagError', () => {
   });
 
   it('errors thrown post-dispose are VoidFlagError instances', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
     try {
-      vf.get('darkMode');
+      acc.value;
     } catch (err) {
       expect(err).toBeInstanceOf(VoidFlagError);
       expect((err as VoidFlagError).name).toBe('VoidFlagError');
@@ -725,42 +708,33 @@ describe('VoidFlagError', () => {
 });
 
 // ----------------------------------------------------------------
-// Internals: eager vs lazy loading
+// Internals: lazy loading
 // ----------------------------------------------------------------
 
-describe('internals: eager vs lazy loading', () => {
-  it('uses lazy loading for schemas >= 2 keys — cache starts empty', () => {
+describe('internals: lazy loading', () => {
+  it('cache starts empty — nothing is built until accessed', () => {
     const internalCache = (vf as any).accessorCache;
     expect(Object.keys(internalCache).length).toBe(0);
-
     void vf.flags.themeColor;
     expect(Object.keys(internalCache).length).toBe(1);
   });
 
-  it('uses lazy loading for all schemas', () => {
-    const smallSchema = defineFlags({ onlyOne: boolean().fallback(true) });
-    const smallClient = new VoidClient({ schema: smallSchema });
+  it('lazy loading works for small schemas too', () => {
+    const smallClient = new VoidClient({ schema: SMALL_SCHEMA, dev: true });
     const cache = (smallClient as any).accessorCache;
 
-    // cache is empty before any access
     expect(Object.keys(cache).length).toBe(0);
-
-    // access populates the cache
     void smallClient.flags.onlyOne;
     expect(Object.keys(cache).length).toBe(1);
     expect(cache['onlyOne']).toBeDefined();
+    smallClient.dispose();
   });
 
-  it('uses lazy loading for all schemas — cache pre-filled only after access', () => {
-    const smallClient = new VoidClient({ schema: SMALL_SCHEMA });
-    const internalCache = (smallClient as any).accessorCache;
-
-    expect(Object.keys(internalCache).length).toBe(0);
-
-    void smallClient.flags.onlyOne;
+  it('second access returns cached accessor — cache length stays at 1', () => {
+    void vf.flags.themeColor;
+    void vf.flags.themeColor;
+    const internalCache = (vf as any).accessorCache;
     expect(Object.keys(internalCache).length).toBe(1);
-    expect(internalCache['onlyOne']).toBeDefined();
-    smallClient.dispose();
   });
 });
 
@@ -770,20 +744,20 @@ describe('internals: eager vs lazy loading', () => {
 
 describe('multi-client isolation', () => {
   it('hydrating one client does not affect another', () => {
-    const a = new VoidClient({ schema });
-    const b = new VoidClient({ schema });
+    const a = new VoidClient({ schema, dev: true });
+    const b = new VoidClient({ schema, dev: true });
     a.hydrate('themeColor', { value: 'dark' });
-    expect(a.get('themeColor')).toBe('dark');
-    expect(b.get('themeColor')).toBe('#000000');
+    expect(a.flags.themeColor.value).toBe('dark');
+    expect(b.flags.themeColor.value).toBe('#000000');
     a.dispose();
     b.dispose();
   });
 
   it('disposing one client does not affect another', () => {
-    const a = new VoidClient({ schema });
-    const b = new VoidClient({ schema });
+    const a = new VoidClient({ schema, dev: true });
+    const b = new VoidClient({ schema, dev: true });
     a.dispose();
-    expect(() => b.get('themeColor')).not.toThrow();
+    expect(() => b.flags.themeColor.value).not.toThrow();
     b.dispose();
   });
 });
@@ -793,10 +767,10 @@ describe('multi-client isolation', () => {
 // ----------------------------------------------------------------
 
 describe('stress', () => {
-  it('1000 rapid hydrate + get cycles stay consistent', () => {
+  it('1000 rapid hydrate + read cycles stay consistent', () => {
     for (let i = 0; i < 1000; i++) {
       vf.hydrate('fontSize', { value: i, enabled: true });
-      expect(vf.get('fontSize')).toBe(i);
+      expect(vf.flags.fontSize.value).toBe(i);
     }
   });
 
@@ -835,11 +809,11 @@ describe('stress', () => {
     expect(accs.fontSize.value).toBe(99);
     expect(accs.darkMode.value).toBe(true);
     expect(accs.checkoutVariant.value).toBe('treatment');
-    expect(accs.checkoutVariant.rollout).toBe(33);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(33);
   });
 
   it('snapshot under rapid hydration always captures the moment it was called', () => {
-    const snapshots: any[] = [];
+    const snapshots: ReturnType<typeof vf.snapshot>[] = [];
     for (let i = 0; i < 20; i++) {
       vf.hydrate('itemsPerPage', { value: i * 5 });
       snapshots.push(vf.snapshot('itemsPerPage'));
@@ -849,18 +823,18 @@ describe('stress', () => {
     }
   });
 
-  it('rapid flag + snapshot interleaving returns coherent results', () => {
-    const node = vf.flag('themeColor');
+  it('rapid accessor + snapshot interleaving returns coherent results', () => {
+    const node = vf.flags.themeColor;
     for (let i = 0; i < 200; i++) {
-      vf.hydrate('themeColor', { value: `v${i}` });
+      vf.hydrate('themeColor', { value: `v${i}`, enabled: true });
       const snap = vf.snapshot('themeColor');
       expect(snap.value).toBe(node.value);
     }
   });
 
   it('concurrent accessor reads during rapid hydration never see torn state', () => {
-    const themeNode = vf.flag('themeColor');
-    const itemsNode = vf.flag('fontSize');
+    const themeNode = vf.flags.themeColor;
+    const itemsNode = vf.flags.fontSize;
 
     for (let i = 0; i < 500; i++) {
       vf.hydrate('themeColor', { value: `v${i}`, enabled: i % 2 === 0 });
@@ -869,15 +843,15 @@ describe('stress', () => {
       if (themeNode.enabled) {
         expect(themeNode.value).toBe(`v${i}`);
       } else {
-        expect(themeNode.value).toBe(themeNode.fallback);
+        expect(themeNode.value).toBe('#000000'); // fallback
       }
-      expect(itemsNode.rollout).toBe(i % 100);
+      expect(vf.snapshot('fontSize').rollout).toBe(i % 100);
     }
   });
 
   it('handles empty schema without crashing', () => {
-    const emptyVf = new VoidClient({ schema: {} });
-    expect(emptyVf.allEnabled([])).toBe(true);
+    const emptyVf = new VoidClient({ schema: defineFlags({}), dev: true });
+    expect(emptyVf.allEnabled()).toBe(true);
     expect(emptyVf.debugSnapshots()).toEqual({});
     emptyVf.dispose();
   });

@@ -68,7 +68,7 @@ const ALL_KEYS = Object.keys(schema) as (keyof Schema)[];
 let vf: VoidClient<Schema>;
 
 beforeEach(() => {
-  vf = new VoidClient({ schema });
+  vf = new VoidClient({ schema, dev: true });
 });
 
 // ================================================================

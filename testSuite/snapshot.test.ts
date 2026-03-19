@@ -14,7 +14,7 @@ type Schema = typeof schema;
 let vf: VoidClient<Schema>;
 
 beforeEach(() => {
-  vf = new VoidClient({ schema });
+  vf = new VoidClient({ schema, dev: true });
 });
 
 // ================================================================
@@ -54,10 +54,10 @@ describe('snapshot()', () => {
     expect(snap.fallback).toBe(16);
     expect(snap.rollout).toBe(100);
   });
-  it('get() returns fallback when disabled', () => {
+  it('flags.x returns fallback when disabled', () => {
     vf.hydrate('fontSize', { value: 32, enabled: false });
 
-    expect(vf.get('fontSize')).toBe(16); // resolved
+    expect(vf.flags.fontSize.value).toBe(16); // resolved
   });
 
   it('boolean snapshot has rollout key', () => {

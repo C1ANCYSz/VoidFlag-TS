@@ -204,7 +204,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
     this.source = undefined;
     clearTimeout(this.probeTimer);
     this.probeTimer = undefined;
-    this.fallback.stop();
+    this.fallback?.stop();
   }
 
   // ─── Connection ────────────────────────────────────────────────────────────
@@ -283,7 +283,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
 
       source.addEventListener('open', () => {
         clearTimeout(timeout);
-        this.fallback.stop();
+        this.fallback?.stop();
         this.pollingFallbackActive = false;
         this.retryCount = 0;
         this.source = source;

@@ -21,7 +21,7 @@ type Schema = typeof schema;
 let vf: VoidClient<Schema>;
 
 beforeEach(() => {
-  vf = new VoidClient({ schema });
+  vf = new VoidClient({ schema, dev: true });
 });
 
 // ================================================================
@@ -29,29 +29,28 @@ beforeEach(() => {
 // ================================================================
 
 describe('API methods throw after dispose', () => {
-  it('get() throws VoidFlagError', () => {
+  it('flags.*.value throws VoidFlagError', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.get('darkMode')).toThrow(VoidFlagError);
+    expect(() => acc.value).toThrow(VoidFlagError);
   });
 
-  it('enabled() throws VoidFlagError', () => {
+  it('flags.*.enabled throws VoidFlagError', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.enabled('darkMode')).toThrow(VoidFlagError);
+    expect(() => acc.enabled).toThrow(VoidFlagError);
   });
 
-  it('allEnabled() throws VoidFlagError', () => {
+  it('allEnabled() throws VoidFlagError when accessor is disposed', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
-    expect(() => vf.allEnabled(['darkMode'])).toThrow(VoidFlagError);
+    expect(() => vf.allEnabled(acc)).toThrow(VoidFlagError);
   });
 
-  it('flag() throws VoidFlagError', () => {
+  it('isRolledOutFor() throws VoidFlagError', () => {
+    const acc = vf.flags.checkoutVariant;
     vf.dispose();
-    expect(() => vf.flag('darkMode')).toThrow(VoidFlagError);
-  });
-
-  it('flags.* throws VoidFlagError', () => {
-    vf.dispose();
-    expect(() => vf.flags.darkMode).toThrow(VoidFlagError);
+    expect(() => acc.isRolledOutFor('user')).toThrow(VoidFlagError);
   });
 
   it('snapshot() throws VoidFlagError', () => {
@@ -64,15 +63,15 @@ describe('API methods throw after dispose', () => {
     expect(() => vf.debugSnapshots()).toThrow(VoidFlagError);
   });
 
-  it('isRolledOutFor() throws VoidFlagError', () => {
+  it('hydrate() throws VoidFlagError', () => {
     vf.dispose();
-    expect(() => vf.isRolledOutFor('checkoutVariant', 'user')).toThrow(VoidFlagError);
+    expect(() => vf.hydrate('darkMode', { value: true })).toThrow(VoidFlagError);
   });
 
   it('error message mentions "disposed"', () => {
     vf.dispose();
     try {
-      vf.get('darkMode');
+      vf.snapshot('darkMode');
     } catch (e) {
       expect((e as VoidFlagError).message).toMatch(/disposed/i);
     }
@@ -84,29 +83,27 @@ describe('API methods throw after dispose', () => {
 // ================================================================
 
 describe('held accessor references throw after dispose', () => {
-  it('string accessor — all properties throw', () => {
-    const acc = vf.flag('themeColor');
+  it('string accessor — value and enabled throw', () => {
+    const acc = vf.flags.themeColor;
     expect(acc.value).toBe('#000000'); // works before dispose
     vf.dispose();
     expect(() => acc.value).toThrow(VoidFlagError);
-    expect(() => acc.fallback).toThrow(VoidFlagError);
     expect(() => acc.enabled).toThrow(VoidFlagError);
-    expect(() => acc.rollout).toThrow(VoidFlagError);
+    expect(() => acc.isRolledOutFor('u')).toThrow(VoidFlagError);
   });
 
-  it('boolean accessor — all properties throw', () => {
-    const acc = vf.flag('darkMode');
+  it('boolean accessor — value and enabled throw', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
     expect(() => acc.value).toThrow(VoidFlagError);
-    expect(() => acc.fallback).toThrow(VoidFlagError);
     expect(() => acc.enabled).toThrow(VoidFlagError);
   });
 
-  it('number accessor — all properties throw', () => {
-    const acc = vf.flag('fontSize');
+  it('number accessor — value and enabled throw', () => {
+    const acc = vf.flags.fontSize;
     vf.dispose();
     expect(() => acc.value).toThrow(VoidFlagError);
-    expect(() => acc.rollout).toThrow(VoidFlagError);
+    expect(() => acc.enabled).toThrow(VoidFlagError);
   });
 
   it('all cached accessors throw after dispose', () => {
@@ -118,10 +115,12 @@ describe('held accessor references throw after dispose', () => {
     }
   });
 
-  it('un-accessed flags also throw after dispose', () => {
-    // never touch maxItems before dispose
+  it('un-accessed flag accessor throws after dispose', () => {
+    // never touch maxItems before dispose — grab it after
     vf.dispose();
-    expect(() => vf.flags.maxItems).toThrow(VoidFlagError);
+    // flags proxy itself doesn't throw; the accessor's property getters do
+    const acc = vf.flags.maxItems;
+    expect(() => acc.value).toThrow(VoidFlagError);
   });
 });
 
@@ -146,11 +145,12 @@ describe('dispose idempotency & error identity', () => {
   });
 
   it('dispose does not bleed into sibling clients', () => {
-    const a = new VoidClient({ schema });
-    const b = new VoidClient({ schema });
+    const a = new VoidClient({ schema, dev: true });
+    const b = new VoidClient({ schema, dev: true });
     a.dispose();
-    expect(() => b.get('darkMode')).not.toThrow();
-    expect(b.get('darkMode')).toBe(false);
+    expect(() => b.flags.darkMode.value).not.toThrow();
+    expect(b.flags.darkMode.value).toBe(false);
+    b.dispose();
   });
 });
 
@@ -172,9 +172,10 @@ describe('VoidFlagError', () => {
   });
 
   it('errors thrown post-dispose are VoidFlagError instances', () => {
+    const acc = vf.flags.darkMode;
     vf.dispose();
     try {
-      vf.get('darkMode');
+      acc.value;
     } catch (err) {
       expect(err).toBeInstanceOf(VoidFlagError);
       expect((err as VoidFlagError).name).toBe('VoidFlagError');

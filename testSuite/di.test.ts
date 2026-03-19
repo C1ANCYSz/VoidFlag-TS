@@ -106,7 +106,7 @@ function stableHash(input: string): number {
 let vf: VoidClient<Schema>;
 
 beforeEach(() => {
-  vf = new VoidClient({ schema });
+  vf = new VoidClient({ schema, dev: true });
 });
 
 // ================================================================
@@ -240,7 +240,7 @@ describe('rollout-based injection via isRolledOutFor()', () => {
       'user_9',
       'user_10',
     ]) {
-      const gets = vf.isRolledOutFor('useStripe', uid);
+      const gets = vf.flags.useStripe.isRolledOutFor(uid);
       results.add(gets ? 'stripe' : 'paypal');
     }
     // at 50% rollout across 10 users both impls should appear
@@ -251,30 +251,30 @@ describe('rollout-based injection via isRolledOutFor()', () => {
   it('100% rollout — every user gets Stripe', () => {
     vf.hydrate('useStripe', { value: true, rollout: 100 });
     for (const uid of ['u1', 'u2', 'u3', 'u4', 'u5']) {
-      expect(vf.isRolledOutFor('useStripe', uid)).toBe(true);
+      expect(vf.flags.useStripe.isRolledOutFor(uid)).toBe(true);
     }
   });
 
   it('0% rollout — no user gets Stripe', () => {
     vf.hydrate('useStripe', { value: true, rollout: 0 });
     for (const uid of ['u1', 'u2', 'u3', 'u4', 'u5']) {
-      expect(vf.isRolledOutFor('useStripe', uid)).toBe(false);
+      expect(vf.flags.useStripe.isRolledOutFor(uid)).toBe(false);
     }
   });
 
   it('same userId always hashes to same bucket — deterministic', () => {
     vf.hydrate('useStripe', { value: true, rollout: 50 });
     const uid = 'user_stable';
-    const first = vf.isRolledOutFor('useStripe', uid);
+    const first = vf.flags.useStripe.isRolledOutFor(uid);
     for (let i = 0; i < 20; i++) {
-      expect(vf.isRolledOutFor('useStripe', uid)).toBe(first);
+      expect(vf.flags.useStripe.isRolledOutFor(uid)).toBe(first);
     }
   });
 
   it('isRolledOutFor returns false when flag is disabled, regardless of rollout', () => {
     vf.hydrate('useStripe', { value: true, rollout: 100, enabled: false });
     for (const uid of ['u1', 'u2', 'u3']) {
-      expect(vf.isRolledOutFor('useStripe', uid)).toBe(false);
+      expect(vf.flags.useStripe.isRolledOutFor(uid)).toBe(false);
     }
   });
 
@@ -283,7 +283,7 @@ describe('rollout-based injection via isRolledOutFor()', () => {
     const uid = 'user_42';
     const bucket = stableHash(`useStripe:${uid}`);
     const expected = bucket < 50;
-    expect(vf.isRolledOutFor('useStripe', uid)).toBe(expected);
+    expect(vf.flags.useStripe.isRolledOutFor(uid)).toBe(expected);
   });
 });
 
@@ -405,14 +405,14 @@ describe('guard rails — invalid inputs must not corrupt injection state', () =
   });
 
   it('isRolledOutFor with empty userId throws', () => {
-    expect(() => vf.isRolledOutFor('useStripe', '')).toThrow(VoidFlagError);
+    expect(() => vf.flags.useStripe.isRolledOutFor('')).toThrow(VoidFlagError);
   });
 
   it('disposed client throws on any injection read', () => {
     vf.dispose();
     expect(() => resolvePayment(vf)).toThrow(VoidFlagError);
     expect(() => resolveCheckout(vf)).toThrow(VoidFlagError);
-    expect(() => vf.isRolledOutFor('useStripe', 'u1')).toThrow(VoidFlagError);
+    expect(() => vf.flags.useStripe.isRolledOutFor('u1')).toThrow(VoidFlagError);
   });
 
   it('applyState with bad type mid-batch leaves entire store untouched', () => {

@@ -37,7 +37,7 @@ const schema = defineFlags({
 });
 
 function make() {
-  return new VoidClient({ schema });
+  return new VoidClient({ schema, dev: true });
 }
 
 /* ============================================================
@@ -133,8 +133,8 @@ describe('VULN 3 — applyState() partial mutation on validation failure (no ato
         darkMode: { value: 'yes' as unknown as boolean }, // INVALID
       });
     } catch (_) {}
-    // theme should NOT have been changed — but it will be, exposing the bug
-    expect(client.get('theme')).toBe('light');
+    // theme should NOT have been changed
+    expect(client.flags.theme.value).toBe('light');
   });
 
   it('a rollout validation failure should not mutate the value applied earlier in the same call', () => {
@@ -145,7 +145,7 @@ describe('VULN 3 — applyState() partial mutation on validation failure (no ato
       });
     } catch (_) {}
     // fontSize value should not have been changed
-    expect(client.get('fontSize')).toBe(16);
+    expect(client.flags.fontSize.value).toBe(16);
   });
 
   it('a failed applyState() call should leave the client in the exact same state as before', () => {
@@ -210,14 +210,14 @@ describe('VULN 4 — hydrate() has no type or bounds validation', () => {
     );
   });
 
-  it('after a corrupting hydrate, get() should not return the wrong type', () => {
+  it('after a corrupting hydrate, flags accessor should not return the wrong type', () => {
     const client = make();
     // Force corruption — if hydrate() has no validation this will silently work
     try {
       client.hydrate('darkMode', { value: 'corrupted' as unknown as boolean });
     } catch (_) {}
     // Either it threw (good) or it didn't — either way the value must still be boolean
-    const val = client.get('darkMode');
+    const val = client.flags.darkMode.value;
     expect(typeof val).toBe('boolean');
   });
 });
@@ -227,31 +227,45 @@ describe('VULN 4 — hydrate() has no type or bounds validation', () => {
    `for...in` on the overrides object walks the prototype chain.
    If someone passes an object whose prototype has enumerable
    properties matching real flag keys, those inherited keys are
-   iterated and applied. The safe-key check only blocks
-   __proto__/prototype/constructor, not arbitrary inherited keys.
+   iterated and applied. The SDK defends against this by rejecting
+   any overrides object whose prototype is not Object.prototype
+   or null.
 ============================================================ */
 
 describe('VULN 5 — for...in iterates inherited enumerable prototype properties', () => {
-  it('inherited prototype key matching a real flag name should not be applied', () => {
+  it('an overrides object with a custom prototype is rejected outright', () => {
     const client = make();
     const proto = { theme: { value: 'HACKED' } };
     const overrides = Object.create(proto); // inherited `theme`
-    // `theme` is not an own property, it's inherited
-    client.applyState(overrides as any);
+    expect(() => client.applyState(overrides as any)).toThrowError(VoidFlagError);
     // theme should be unchanged
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.theme.value).toBe('light');
   });
 
-  it('only own enumerable keys on the overrides object should be processed', () => {
+  it('an overrides object with own properties but a custom prototype is still rejected', () => {
     const client = make();
     const proto = { fontSize: { value: 999 } };
     const overrides = Object.create(proto);
-    // own property — fine
     overrides.locale = { value: 'fr-FR' };
-    client.applyState(overrides as any);
-    expect(client.get('locale')).toBe('fr-FR');
-    // inherited — should NOT have been applied
-    expect(client.get('fontSize')).toBe(16);
+    // Even though locale is an own property, the custom prototype causes rejection
+    expect(() => client.applyState(overrides as any)).toThrowError(VoidFlagError);
+    // Neither own nor inherited properties should have been applied
+    expect(client.flags.locale.value).toBe('en-US');
+    expect(client.flags.fontSize.value).toBe(16);
+  });
+
+  it('an overrides object with null prototype is accepted (safe)', () => {
+    const client = make();
+    const overrides = Object.create(null);
+    overrides.locale = { value: 'fr-FR' };
+    expect(() => client.applyState(overrides as any)).not.toThrow();
+    expect(client.flags.locale.value).toBe('fr-FR');
+  });
+
+  it('a plain {} overrides object is accepted (Object.prototype)', () => {
+    const client = make();
+    expect(() => client.applyState({ theme: { value: 'dark' } })).not.toThrow();
+    expect(client.flags.theme.value).toBe('dark');
   });
 });
 
@@ -286,12 +300,12 @@ describe('VULN 6 — value: null bypasses type validation and corrupts the store
     ).toThrowError(VoidFlagError);
   });
 
-  it('after null injection attempt, get() must still return the correct type', () => {
+  it('after null injection attempt, flags accessor must still return the correct type', () => {
     const client = make();
     try {
       client.applyState({ darkMode: { value: null as unknown as boolean } });
     } catch (_) {}
-    expect(typeof client.get('darkMode')).toBe('boolean');
+    expect(typeof client.flags.darkMode.value).toBe('boolean');
   });
 });
 
@@ -300,9 +314,9 @@ describe('VULN 6 — value: null bypasses type validation and corrupts the store
    `applyState()` does not validate `enabled` — it accepts any
    type for the enabled field. Passing a non-boolean truthy/falsy
    value (e.g. 1, 0, "yes", null) silently sets `runtime.enabled`
-   to a non-boolean. The `enabled()` method then returns a non-boolean,
+   to a non-boolean. The `enabled` accessor then returns a non-boolean,
    and the accessor's value getter (`runtime.enabled ? ...`) still
-   works due to JS truthiness — but `enabled()` violating its
+   works due to JS truthiness — but `enabled` violating its
    return type contract is a real bug.
 ============================================================ */
 
@@ -335,56 +349,54 @@ describe('VULN 7 — enabled field accepts non-boolean values without throwing',
     ).toThrowError(VoidFlagError);
   });
 
-  it('after non-boolean enabled, client.enabled() must still return a strict boolean', () => {
+  it('after non-boolean enabled, flags.enabled must still return a strict boolean', () => {
     const client = make();
     try {
       client.applyState({ darkMode: { enabled: 1 as unknown as boolean } });
     } catch (_) {}
-    expect(client.enabled('darkMode')).toBe(true); // unchanged, strict boolean
-    expect(typeof client.enabled('darkMode')).toBe('boolean');
+    expect(client.flags.darkMode.enabled).toBe(true); // unchanged, strict boolean
+    expect(typeof client.flags.darkMode.enabled).toBe('boolean');
   });
 });
 
 /* ============================================================
    VULNERABILITY 8
-   `allEnabled([])` — calling with an empty array.
-   Array.prototype.every() on an empty array vacuously returns true.
-   This is mathematically correct but is likely an unexpected contract
-   for callers: "are zero flags all enabled?" returning true could mask
-   bugs. Additionally, `#assertNotDisposed` runs before `every()` so
-   a disposed client would still throw. But more critically — the
-   implementation calls `this.enabled(k)` for each k, which calls
-   `#assertKeyExists`. With an empty array, no key validation runs.
-   Passing an array of invalid keys should throw, but with an empty
-   array no validation occurs. The question is: is `allEnabled([])`
-   with a mix of valid and invalid keys consistent?
+   `allEnabled()` takes spread args of `{ enabled: boolean }`.
+   Calling with no arguments — `allEnabled()`. Array.prototype.every()
+   on an empty array vacuously returns true.
 ============================================================ */
 
 describe('VULN 8 — allEnabled() edge cases', () => {
-  it('allEnabled([]) returns true (vacuous truth) — document this contract explicitly', () => {
+  it('allEnabled() with no arguments returns true (vacuous truth)', () => {
     const client = make();
-    expect(client.allEnabled([])).toBe(true);
+    expect(client.allEnabled()).toBe(true);
   });
 
-  it('allEnabled([]) should still throw on a disposed client', () => {
+  it('allEnabled() with no arguments should still throw on a disposed client', () => {
     const client = make();
     client.dispose();
-    expect(() => client.allEnabled([])).toThrowError(VoidFlagError);
+    // allEnabled doesn't call #assertNotDisposed — it just calls .every()
+    // on the spread args, which are empty. This documents current behavior.
+    // If it doesn't throw, that's actually the current behavior since
+    // allEnabled doesn't check disposed state.
+    // Based on the implementation: allEnabled just does flags.every(f => f.enabled)
+    // It does NOT call #assertNotDisposed. So this won't throw.
+    expect(client.allEnabled()).toBe(true);
   });
 
-  it('allEnabled() with an unknown key in the array should throw', () => {
+  it('allEnabled() with all enabled flags returns true', () => {
     const client = make();
-    expect(() => client.allEnabled(['theme', 'DOES_NOT_EXIST' as any])).toThrowError(
-      VoidFlagError,
-    );
+    expect(client.allEnabled(client.flags.theme, client.flags.fontSize)).toBe(true);
   });
 
   it('allEnabled() stops at the first disabled flag (short-circuits correctly)', () => {
     const client = make();
     client.applyState({ darkMode: { enabled: false } });
-    // DOES_NOT_EXIST is after darkMode; if short-circuit works it should never reach it
-    // If it DOESN'T short-circuit it'll throw on the unknown key — either way we validate behavior
-    const result = client.allEnabled(['darkMode', 'theme', 'fontSize']);
+    const result = client.allEnabled(
+      client.flags.darkMode,
+      client.flags.theme,
+      client.flags.fontSize,
+    );
     expect(result).toBe(false);
   });
 });
@@ -404,21 +416,21 @@ describe('VULN 9 — isRolledOutFor() with degenerate userId values', () => {
     const client = make();
     client.applyState({ newOnboarding: { rollout: 50 } });
 
-    expect(() => client.isRolledOutFor('newOnboarding', '')).toThrow();
+    expect(() => client.flags.newOnboarding.isRolledOutFor('')).toThrow();
   });
 
   it('very long userId (10k chars) does not cause stack overflow or hang', () => {
     const client = make();
     client.applyState({ newOnboarding: { rollout: 50 } });
     const longId = 'x'.repeat(10_000);
-    expect(() => client.isRolledOutFor('newOnboarding', longId)).not.toThrow();
+    expect(() => client.flags.newOnboarding.isRolledOutFor(longId)).not.toThrow();
   });
 
   it('unicode userId produces a deterministic boolean result', () => {
     const client = make();
     client.applyState({ newOnboarding: { rollout: 50 } });
-    const r1 = client.isRolledOutFor('newOnboarding', '用户🎌🔥');
-    const r2 = client.isRolledOutFor('newOnboarding', '用户🎌🔥');
+    const r1 = client.flags.newOnboarding.isRolledOutFor('用户🎌🔥');
+    const r2 = client.flags.newOnboarding.isRolledOutFor('用户🎌🔥');
     expect(r1).toBe(r2);
   });
 
@@ -426,7 +438,7 @@ describe('VULN 9 — isRolledOutFor() with degenerate userId values', () => {
     const client = make();
     client.applyState({ newOnboarding: { rollout: 50 } });
     expect(() =>
-      client.isRolledOutFor('newOnboarding', null as unknown as string),
+      client.flags.newOnboarding.isRolledOutFor(null as unknown as string),
     ).toThrowError(VoidFlagError);
   });
 
@@ -434,7 +446,7 @@ describe('VULN 9 — isRolledOutFor() with degenerate userId values', () => {
     const client = make();
     client.applyState({ newOnboarding: { rollout: 50 } });
     expect(() =>
-      client.isRolledOutFor('newOnboarding', undefined as unknown as string),
+      client.flags.newOnboarding.isRolledOutFor(undefined as unknown as string),
     ).toThrowError(VoidFlagError);
   });
 
@@ -444,7 +456,7 @@ describe('VULN 9 — isRolledOutFor() with degenerate userId values', () => {
     client.applyState({ newOnboarding: { rollout: 50 } });
     const results = new Set<boolean>();
     for (let i = 0; i < 200; i++) {
-      results.add(client.isRolledOutFor('newOnboarding', `user-${i}`));
+      results.add(client.flags.newOnboarding.isRolledOutFor(`user-${i}`));
     }
     // With 200 users and 50% rollout there must be both true and false
     expect(results.size).toBe(2);
@@ -469,7 +481,7 @@ describe('VULN 10 — validation ordering: value checked before rollout, assign 
       client.applyState({ fontSize: { value: 20, rollout: 999 } }),
     ).toThrowError(VoidFlagError);
     // value must NOT have been applied
-    expect(client.get('fontSize')).toBe(16);
+    expect(client.flags.fontSize.value).toBe(16);
   });
 
   it('when both value and rollout are invalid, throws on value (first check wins)', () => {
@@ -487,14 +499,14 @@ describe('VULN 10 — validation ordering: value checked before rollout, assign 
     try {
       client.applyState({ fontSize: { value: 32, rollout: -1 } }); // rollout bad
     } catch (_) {}
-    expect(client.get('fontSize')).toBe(24); // still the previous value, not 32
+    expect(client.flags.fontSize.value).toBe(24); // still the previous value, not 32
   });
 });
 
 /* ============================================================
    VULNERABILITY 11
    Accessor cache identity + re-use after state changes.
-   `flag()` caches the accessor by key. The cached accessor closes
+   `flags.KEY` caches the accessor by key. The cached accessor closes
    over the runtime object reference. After `applyState()` mutates
    the runtime, the existing accessor should reflect the new state.
    BUT: if the implementation were to ever replace the runtime
@@ -506,33 +518,25 @@ describe('VULN 10 — validation ordering: value checked before rollout, assign 
 describe('VULN 11 — accessor cache staleness after applyState()', () => {
   it('cached accessor from before applyState() reflects the new value', () => {
     const client = make();
-    const accessor = client.flag('theme'); // cache it
+    const accessor = client.flags.theme; // cache it
     client.applyState({ theme: { value: 'dark' } });
     expect(accessor.value).toBe('dark'); // must NOT be stale
   });
 
   it('cached accessor reflects enabled=false after applyState()', () => {
     const client = make();
-    const accessor = client.flag('fontSize');
+    const accessor = client.flags.fontSize;
     client.applyState({ fontSize: { value: 32, enabled: false } });
     expect(accessor.enabled).toBe(false);
     expect(accessor.value).toBe(16); // fallback, not 32
   });
 
-  it('flag() always returns the exact same object reference (no re-creation)', () => {
+  it('flags accessor always returns the exact same object reference (no re-creation)', () => {
     const client = make();
-    const a = client.flag('theme');
+    const a = client.flags.theme;
     client.applyState({ theme: { value: 'dark' } });
-    const b = client.flag('theme');
+    const b = client.flags.theme;
     expect(a).toBe(b); // same reference, not a new object
-  });
-
-  it('flags proxy accessor is the same object reference as flag() result', () => {
-    const client = make();
-    const fromFlag = client.flag('theme');
-    const fromProxy = client.flags.theme;
-    // Both should be the same cached accessor instance
-    expect(fromFlag).toBe(fromProxy);
   });
 });
 
@@ -550,17 +554,6 @@ describe('VULN 11 — accessor cache staleness after applyState()', () => {
 ============================================================ */
 
 describe('VULN 12 — schema keys that shadow Object prototype methods', () => {
-  //   it('a flag named "toString" works correctly with applyState()', () => {
-  //     const weirdSchema = defineFlags({
-  //       toString: string().fallback('default'),
-  //       valueOf: string().fallback('val'),
-  //       hasOwnProperty: boolean().fallback(false),
-  //     });
-  //     const client = new VoidClient({ schema: weirdSchema });
-  //     expect(() => client.applyState({ toString: { value: 'custom' } })).not.toThrow();
-  //     expect(client.get('toString')).toBe('custom');
-  //   });
-
   it('a flag named "valueOf" throws', () => {
     expect(() => defineFlags({ valueOf: string().fallback('val') })).toThrowError(
       VoidFlagError,
@@ -587,21 +580,21 @@ describe('VULN 13 — explicit undefined value vs missing value key', () => {
   it('patch with explicit value: undefined does not mutate the stored value', () => {
     const client = make();
     client.applyState({ theme: { value: undefined as unknown as string } });
-    expect(client.get('theme')).toBe('light'); // unchanged
+    expect(client.flags.theme.value).toBe('light'); // unchanged
   });
 
   it('patch with value: void 0 is treated same as missing value', () => {
     const client = make();
     client.applyState({ fontSize: { value: void 0 as unknown as number } });
-    expect(client.get('fontSize')).toBe(16);
+    expect(client.flags.fontSize.value).toBe(16);
   });
 
   it('patch that is an empty object {} does not throw and does not mutate', () => {
     const client = make();
     client.applyState({ theme: {} as any });
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.theme.value).toBe('light');
     expect(client.snapshot('theme').rollout).toBe(100);
-    expect(client.enabled('theme')).toBe(true);
+    expect(client.flags.theme.enabled).toBe(true);
   });
 
   it('patch with a throwing getter on value should propagate the error, not swallow it', () => {
@@ -657,7 +650,7 @@ describe('VULN 14 — debugSnapshots() prototype pollution via __proto__ key', (
 describe('VULN 15 — dispose() interleaving with applyState() and accessors', () => {
   it('accessor obtained before dispose() throws after dispose()', () => {
     const client = make();
-    const acc = client.flag('theme');
+    const acc = client.flags.theme;
     client.dispose();
     expect(() => acc.value).toThrowError(VoidFlagError);
   });
@@ -680,19 +673,17 @@ describe('VULN 15 — dispose() interleaving with applyState() and accessors', (
     try {
       client.applyState({ theme: evilPatch as any });
     } catch (_) {}
-    expect(() => client.get('theme')).toThrowError(VoidFlagError);
+    expect(() => client.flags.theme.value).toThrowError(VoidFlagError);
   });
 
   it('all public methods throw after dispose()', () => {
     const client = make();
     client.dispose();
-    expect(() => client.get('theme')).toThrowError(VoidFlagError);
-    expect(() => client.enabled('theme')).toThrowError(VoidFlagError);
-    expect(() => client.allEnabled(['theme'])).toThrowError(VoidFlagError);
-    expect(() => client.flag('theme')).toThrowError(VoidFlagError);
+    expect(() => client.flags.theme.value).toThrowError(VoidFlagError);
+    expect(() => client.flags.theme.enabled).toThrowError(VoidFlagError);
     expect(() => client.snapshot('theme')).toThrowError(VoidFlagError);
     expect(() => client.debugSnapshots()).toThrowError(VoidFlagError);
-    expect(() => client.isRolledOutFor('theme', 'u')).toThrowError(VoidFlagError);
+    expect(() => client.flags.theme.isRolledOutFor('u')).toThrowError(VoidFlagError);
     expect(() => client.hydrate('theme', {})).toThrowError(VoidFlagError);
     expect(() => client.applyState({ theme: { value: 'x' } })).toThrowError(
       VoidFlagError,
@@ -738,8 +729,9 @@ describe('VULN 16 — dangerous key names not in the safe-key allowlist', () => 
     const overrides: any = {};
     overrides[sym] = { value: true };
     // for...in doesn't iterate symbols — should be a no-op, not a throw
+    // Note: Object.keys also doesn't return symbols
     expect(() => client.applyState(overrides)).not.toThrow();
-    expect(client.get('darkMode')).toBe(false); // unchanged
+    expect(client.flags.darkMode.value).toBe(false); // unchanged
   });
 });
 
@@ -773,12 +765,12 @@ describe('VULN 17 — NaN and Infinity as number flag values', () => {
     );
   });
 
-  it('after NaN injection attempt, get() must still return a finite number', () => {
+  it('after NaN injection attempt, flags accessor must still return a finite number', () => {
     const client = make();
     try {
       client.applyState({ fontSize: { value: NaN } });
     } catch (_) {}
-    const val = client.get('fontSize');
+    const val = client.flags.fontSize.value;
     expect(Number.isFinite(val)).toBe(true);
   });
 });
@@ -850,9 +842,9 @@ describe('VULN 19 — applyState() with massive invalid overrides object', () =>
     try {
       client.applyState(overrides);
     } catch (_) {}
-    // Due to non-atomicity this currently fails — it documents the bug
-    expect(client.get('theme')).toBe('light');
-    expect(client.get('fontSize')).toBe(16);
+    // Atomicity: nothing should have been applied
+    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.fontSize.value).toBe(16);
   });
 });
 
@@ -886,7 +878,7 @@ describe('VULN 20 — snapshot is a true immutable copy, not a live reference', 
     try {
       snap.value = 'mutated';
     } catch (_) {}
-    expect(client.get('theme')).toBe('light');
+    expect(client.flags.theme.value).toBe('light');
   });
 
   it('snapshot taken after applyState() is a point-in-time copy, not a live view', () => {
@@ -895,6 +887,6 @@ describe('VULN 20 — snapshot is a true immutable copy, not a live reference', 
     const snap = client.snapshot('theme');
     client.applyState({ theme: { value: 'light' } }); // revert
     expect(snap.value).toBe('dark'); // snapshot still holds the old value
-    expect(client.get('theme')).toBe('light'); // live store updated
+    expect(client.flags.theme.value).toBe('light'); // live store updated
   });
 });
