@@ -284,10 +284,18 @@ export class VoidClient<S extends FlagMap> {
     if (this.dev) {
       const devPort = readDevPort() ?? VOIDFLAG_DEV_PORT;
       const baseUrl = `http://localhost:${devPort}/api`;
-      this.transport = new SSETransport(this, null!, {
+      this.transport = new SSETransport(this, null, {
         baseUrl,
         streamUrl: '/stream?dev=true',
         maxRetries: Infinity,
+        onConnect: () => {
+          this.connected = true;
+          console.log(`[voidflag] connected (dev) → http://localhost:${devPort}`);
+        },
+        onDisconnect: () => {
+          this.connected = false;
+          console.warn(`[voidflag] connection lost`);
+        },
         onError: (_, attempt) => {
           if (attempt === 1) {
             console.warn(
@@ -297,18 +305,12 @@ export class VoidClient<S extends FlagMap> {
                 `  to fix   → run \`vf dev\` to start the local dev server\n`,
             );
           } else {
-            console.warn(`[voidflag] retrying SSE (attempt ${attempt})...`);
+            console.warn(`[voidflag] retrying (attempt ${attempt})...`);
           }
         },
-        onRestore: () => {
-          this.connected = true;
-          console.log(`[voidflag] connected (dev) → http://localhost:${devPort}`);
-        },
       });
-      void (this.transport.start() as Promise<void>).then(() => {
-        this.connected = true;
-        console.log(`[voidflag] connected (dev) → http://localhost:${devPort}`);
-      });
+
+      void this.transport.start();
       return;
     }
 

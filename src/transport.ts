@@ -152,23 +152,15 @@ export class PollingTransport<S extends FlagMap> implements Transport {
 export interface SSETransportOptions {
   baseUrl: string;
   streamUrl: string;
-  /**
-   * After this many consecutive SSE failures the transport gives up on SSE
-   * and hands off to the provided fallback (usually a PollingTransport).
-   * Defaults to 5.
-   */
   maxRetries?: number;
-  /** Called on every connection error so the caller can log or react. */
   onError?: (err: Error, attempt: number) => void;
-  /** Called when SSE is permanently abandoned and the fallback is started. */
   onFallback?: () => void;
-  /**
-   * How often (ms) to probe for SSE recovery while polling fallback is active.
-   * Defaults to 60_000 (1 minute).
-   */
   probeInterval?: number;
-  /** Called when SSE is successfully restored after a polling fallback. */
   onRestore?: () => void;
+  /** Called on every successful SSE connection (initial or reconnect). */
+  onConnect?: () => void;
+  /** Called when SSE connection is lost. */
+  onDisconnect?: () => void;
 }
 
 export class SSETransport<S extends FlagMap> implements Transport {
@@ -179,10 +171,11 @@ export class SSETransport<S extends FlagMap> implements Transport {
   private pollingFallbackActive = false;
   private probeTimer?: ReturnType<typeof setTimeout>;
   private readonly probeInterval: number;
+  private wasConnected = false;
 
   constructor(
     private readonly client: VoidClient<S>,
-    private readonly fallback: Transport,
+    private readonly fallback: Transport | null,
     private readonly options: SSETransportOptions,
   ) {
     this.maxRetries = options.maxRetries ?? 5;
@@ -225,12 +218,23 @@ export class SSETransport<S extends FlagMap> implements Transport {
     if (!this.source) return;
 
     this.source.onopen = () => {
+      const isReconnect = this.wasConnected;
+      this.wasConnected = true;
+      this.retryCount = 0;
+
+      // Fire onConnect for every successful connection
+      this.options.onConnect?.();
+
+      // Fire onRestore only on reconnects (not initial connection)
+      if (isReconnect) {
+        this.options.onRestore?.();
+      }
+
       onReady?.();
       onReady = undefined;
     };
 
     this.source.addEventListener('update', (e: MessageEvent) => {
-      this.retryCount = 0;
       const payload = JSON.parse(e.data as string) as FlagPayload<S>;
       for (const key in payload.flags) {
         this.client.hydrate(key as keyof S, payload.flags[key]);
@@ -242,6 +246,11 @@ export class SSETransport<S extends FlagMap> implements Transport {
       this.source = undefined;
       if (this.stopped) return;
 
+      // Fire onDisconnect when we lose connection
+      if (this.wasConnected && this.retryCount === 0) {
+        this.options.onDisconnect?.();
+      }
+
       this.retryCount++;
       const err = new Error(`SSE connection lost (attempt ${this.retryCount})`);
       this.options.onError?.(err, this.retryCount);
@@ -250,10 +259,13 @@ export class SSETransport<S extends FlagMap> implements Transport {
         onFail?.(err);
         onFail = undefined;
         onReady = undefined;
-        this.pollingFallbackActive = true;
-        this.options.onFallback?.();
-        void this.fallback.start();
-        this.scheduleProbe();
+
+        if (this.fallback) {
+          this.pollingFallbackActive = true;
+          this.options.onFallback?.();
+          void this.fallback.start();
+          this.scheduleProbe();
+        }
         return;
       }
 
@@ -265,6 +277,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
   // ─── SSE recovery probe ────────────────────────────────────────────────────
 
   private scheduleProbe(): void {
+    if (!this.fallback) return;
     this.probeTimer = setTimeout(() => void this.probe(), this.probeInterval);
   }
 
@@ -278,7 +291,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
 
       const timeout = setTimeout(() => {
         source.close();
-        this.scheduleProbe(); // no response in 5s, try again later
+        this.scheduleProbe();
       }, 5_000);
 
       source.addEventListener('open', () => {
@@ -288,9 +301,10 @@ export class SSETransport<S extends FlagMap> implements Transport {
         this.retryCount = 0;
         this.source = source;
         this.attachListeners();
+        this.options.onConnect?.();
         this.options.onRestore?.();
-        console.log('[voidflag] SSE restored');
       });
+
       source.onerror = () => {
         clearTimeout(timeout);
         source.close();
