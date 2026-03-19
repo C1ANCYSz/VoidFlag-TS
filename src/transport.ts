@@ -1,5 +1,5 @@
 import { FlagMap } from './schema.js';
-import { RuntimeFlag, VoidClient } from './sdk.js';
+import { RuntimeFlag, VoidClient, VoidClientInternal } from './sdk.js';
 
 // ─── Transport interface ──────────────────────────────────────────────────────
 
@@ -80,7 +80,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   private version = 0; // 0 = fresh client, triggers full fetch
 
   constructor(
-    private readonly client: VoidClient<S>,
+    private readonly client: VoidClientInternal<S>,
     private readonly envKey: string,
     private readonly baseUrl: string,
     private readonly options: PollingTransportOptions,
@@ -174,7 +174,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
   private wasConnected = false;
 
   constructor(
-    private readonly client: VoidClient<S>,
+    private readonly client: VoidClientInternal<S>,
     private readonly fallback: Transport | null,
     private readonly options: SSETransportOptions,
   ) {

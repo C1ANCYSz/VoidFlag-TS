@@ -149,7 +149,11 @@ function buildAccessor<T extends boolean | string | number>(
 
   return Object.freeze(node);
 }
-
+/** @internal */
+export interface VoidClientInternal<S extends FlagMap> {
+  hydrate<K extends keyof S>(key: K, patch: Patch): void;
+  readonly envKey?: string;
+}
 // ─── VoidClient ───────────────────────────────────────────────────────────────
 
 export class VoidClient<S extends FlagMap> {
@@ -186,7 +190,6 @@ export class VoidClient<S extends FlagMap> {
     } else if (opts.dev) {
       this.dev = true;
       void this.connect();
-    } else {
     }
   }
 
@@ -284,7 +287,7 @@ export class VoidClient<S extends FlagMap> {
     if (this.dev) {
       const devPort = readDevPort() ?? VOIDFLAG_DEV_PORT;
       const baseUrl = `http://localhost:${devPort}/api`;
-      this.transport = new SSETransport(this, null, {
+      this.transport = new SSETransport(this as VoidClientInternal<S>, null, {
         baseUrl,
         streamUrl: '/stream?dev=true',
         maxRetries: Infinity,
@@ -320,14 +323,23 @@ export class VoidClient<S extends FlagMap> {
         method: 'POST',
         headers: { 'X-API-Key': this.envKey },
       });
+
       if (!res.ok)
         throw new ConnectError(`Connect failed with HTTP ${res.status}`, res.status);
       const data = (await res.json()) as ConnectResponse;
+      if (this.#disposed) return; // ← add this
+
       this.transport?.stop();
       this.transport = undefined;
       this.connected = false;
-      this.transport = buildTransport(this, data, `${VOIDFLAG_API_URL}/api`);
+      this.transport = buildTransport(
+        this as VoidClientInternal<S>,
+        data,
+        `${VOIDFLAG_API_URL}/api`,
+      );
       await this.transport.start();
+      if (this.#disposed) return; // ← add this
+
       this.connected = true;
       console.log(`[voidflag] connected → ${VOIDFLAG_API_URL}`);
     } catch (err) {
@@ -384,40 +396,8 @@ export class VoidClient<S extends FlagMap> {
     return this;
   }
 
-  // ─── flag() / get() / enabled() ────────────────────────────────────────────
-
-  // flag<K extends keyof S>(key: K): Accessor<S[K]> {
-  //   this.#assertNotDisposed();
-  //   this.#assertKeyExists(key);
-  //   if (!this.accessorCache[key]) {
-  //     this.accessorCache[key] = this.#buildAccessor(key);
-  //   }
-  //   return this.accessorCache[key]!;
-  // }
-
-  // get<K extends keyof S>(key: K): InferFlagValue<S[K]> {
-  //   this.#assertNotDisposed();
-  //   this.#assertSafeKey(String(key));
-  //   this.#assertKeyExists(key);
-  //   const f = this.store[key];
-  //   return (f.enabled ? f.value : f.fallback) as InferFlagValue<S[K]>;
-  // }
-
-  // enabled<K extends keyof S>(key: K): boolean {
-  //   this.#assertNotDisposed();
-  //   this.#assertSafeKey(String(key));
-  //   this.#assertKeyExists(key);
-  //   return this.store[key].enabled;
-  // }
-
-  // allEnabled(keys: (keyof S)[]): boolean {
-  //   this.#assertNotDisposed();
-  //   return keys.every((k) => {
-  //     this.#assertKeyExists(k);
-  //     return this.store[k].enabled;
-  //   });
-  // }
   allEnabled(...flags: { enabled: boolean }[]): boolean {
+    this.#assertNotDisposed();
     return flags.every((f) => f.enabled);
   }
 
@@ -430,6 +410,8 @@ export class VoidClient<S extends FlagMap> {
    * and `value?: InferFlagValue<FlagDefinition>` which admitted `never` for
    * unknown flag types). Now uses the same `Patch` type as applyState().
    */
+  /** @internal — called by transports only, not part of the public API */
+
   hydrate<K extends keyof S>(key: K, patch: Patch): void {
     this.#assertNotDisposed();
     this.#assertSafeKey(String(key));
@@ -487,12 +469,6 @@ export class VoidClient<S extends FlagMap> {
     return Object.seal(flags);
   }
 
-  // #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
-  //   return buildAccessor(
-  //     this.#assertNotDisposed.bind(this),
-  //     this.store[key] as RuntimeFlag<FlagDefinition>,
-  //   ) as Accessor<S[K]>;
-  // }
   #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
     return buildAccessor(
       this.#assertNotDisposed.bind(this),
@@ -535,24 +511,34 @@ export class VoidClient<S extends FlagMap> {
 // ─── Transport factory ────────────────────────────────────────────────────────
 
 function buildTransport<S extends FlagMap>(
-  client: VoidClient<S>,
+  client: VoidClientInternal<S>,
   data: ConnectResponse,
   baseUrl: string,
 ): Transport {
   switch (data.transport) {
     case 'polling':
-      return new PollingTransport(client, client.envKey!, baseUrl, {
-        interval: data.pollInterval ?? 60_000,
-        onError: (err) => console.error('[VoidClient] polling error:', err),
-      });
+      return new PollingTransport(
+        client as VoidClientInternal<S>,
+        client.envKey!,
+        baseUrl,
+        {
+          interval: data.pollInterval ?? 60_000,
+          onError: (err) => console.error('[VoidClient] polling error:', err),
+        },
+      );
 
     case 'sse': {
-      const fallback = new PollingTransport(client, client.envKey!, baseUrl, {
-        interval: 60_000,
-        onError: (err) => console.error('[VoidClient] fallback polling error:', err),
-      });
+      const fallback = new PollingTransport(
+        client as VoidClientInternal<S>,
+        client.envKey!,
+        baseUrl,
+        {
+          interval: 60_000,
+          onError: (err) => console.error('[VoidClient] fallback polling error:', err),
+        },
+      );
 
-      return new SSETransport(client, fallback, {
+      return new SSETransport(client as VoidClientInternal<S>, fallback, {
         baseUrl,
         streamUrl: data.streamUrl,
         onError: (err, attempt) =>

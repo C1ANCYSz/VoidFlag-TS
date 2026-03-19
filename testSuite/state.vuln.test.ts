@@ -375,13 +375,9 @@ describe('VULN 8 — allEnabled() edge cases', () => {
   it('allEnabled() with no arguments should still throw on a disposed client', () => {
     const client = make();
     client.dispose();
-    // allEnabled doesn't call #assertNotDisposed — it just calls .every()
-    // on the spread args, which are empty. This documents current behavior.
-    // If it doesn't throw, that's actually the current behavior since
-    // allEnabled doesn't check disposed state.
-    // Based on the implementation: allEnabled just does flags.every(f => f.enabled)
-    // It does NOT call #assertNotDisposed. So this won't throw.
-    expect(client.allEnabled()).toBe(true);
+    // allEnabled() calls #assertNotDisposed, so it throws on a disposed client
+
+    expect(() => client.allEnabled()).toThrow(VoidFlagError);
   });
 
   it('allEnabled() with all enabled flags returns true', () => {
