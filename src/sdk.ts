@@ -1,11 +1,4 @@
 import {
-  BooleanFlag,
-  FlagDefinition,
-  FlagMap,
-  NumberFlag,
-  StringFlag,
-} from './schema.js';
-import {
   readDevPort,
   RESERVED_KEYS,
   VOIDFLAG_DEV_PORT,
@@ -13,11 +6,32 @@ import {
 } from '@voidflag/shared';
 import { PollingTransport, SSETransport } from './transport.js';
 import { VoidFlagError } from './VoidFlagError.js';
+
 // ─── Constants ────────────────────────────────────────────────────────────────
+
 const ALLOWED_PATCH_KEYS = new Set(['value', 'enabled', 'rollout'] as const);
 
 // ─── Type Helpers ─────────────────────────────────────────────────────────────
+interface BooleanFlag {
+  type: 'BOOLEAN';
+  fallback: boolean;
+}
 
+interface StringFlag {
+  type: 'STRING';
+  fallback: string;
+}
+
+interface NumberFlag {
+  type: 'NUMBER';
+  fallback: number;
+}
+
+type FlagDefinition = BooleanFlag | StringFlag | NumberFlag;
+
+export interface FlagMap {
+  [key: string]: FlagDefinition;
+}
 type InferFlagValue<F extends FlagDefinition> = F extends BooleanFlag
   ? boolean
   : F extends StringFlag
@@ -26,58 +40,75 @@ type InferFlagValue<F extends FlagDefinition> = F extends BooleanFlag
       ? number
       : never;
 
-// ─── Runtime Flag Shape ───────────────────────────────────────────────────────
+// ─── Core Domain Types ────────────────────────────────────────────────────────
 
-export type RuntimeFlag<F extends FlagDefinition> = {
+export interface RuntimeFlag<F extends FlagDefinition> {
   type: F['type'];
   value: InferFlagValue<F>;
   fallback: InferFlagValue<F>;
   enabled: boolean;
   rollout: number;
-};
-
-// ─── Patch / Accessor / Snapshot ─────────────────────────────────────────────
+}
 
 /**
  * The shape accepted by hydrate() and applyState() patches.
  * Using a concrete type instead of a loose object prevents unknown fields
  * from slipping through before #validatePatch runs.
  */
-type Patch = {
-  value?: boolean | string | number;
-  enabled?: boolean;
-  rollout?: number;
-};
+type BooleanPatch = { value?: boolean; enabled?: boolean; rollout?: number };
+type StringPatch = { value?: string; enabled?: boolean; rollout?: number };
+type NumberPatch = { value?: number; enabled?: boolean; rollout?: number };
+export type Patch = BooleanPatch | StringPatch | NumberPatch;
 
-export type Accessor<F extends FlagDefinition> = Readonly<{
-  value: InferFlagValue<F>;
-  enabled: boolean;
+export interface Accessor<F extends FlagDefinition> {
+  readonly value: InferFlagValue<F>;
+  readonly enabled: boolean;
   isRolledOutFor(userId: string): boolean;
-}>;
-export type Snapshot<F extends FlagDefinition> = Readonly<{
-  value: InferFlagValue<F>;
-  fallback: InferFlagValue<F>;
-  enabled: boolean;
-  rollout: number;
-}>;
-// ─── FlagPayload (used by transport layer) ────────────────────────────────────
+}
 
-export type FlagPayload<S extends FlagMap> = Record<
-  string,
-  Partial<RuntimeFlag<S[keyof S]>>
->;
+export interface Snapshot<F extends FlagDefinition> {
+  readonly value: InferFlagValue<F>;
+  readonly fallback: InferFlagValue<F>;
+  readonly enabled: boolean;
+  readonly rollout: number;
+}
 
-// ─── StateMap / Client Options ────────────────────────────────────────────────
+// ─── Internal Types ───────────────────────────────────────────────────────────
 
-type StateMap<S extends FlagMap> = {
-  [K in keyof S]?: Patch;
-};
+type Store<S extends FlagMap> = { [K in keyof S]: RuntimeFlag<S[K]> };
 
-type ClientOptions<S extends FlagMap> =
-  | { schema: S; dev: true; envKey?: never }
-  | { schema: S; envKey: string; dev?: never };
+type PatchFor<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
+  ? BooleanPatch
+  : F extends { type: 'STRING' }
+    ? StringPatch
+    : F extends { type: 'NUMBER' }
+      ? NumberPatch
+      : never;
 
-// ─── Connect response shapes ──────────────────────────────────────────────────
+type StateMap<S extends FlagMap> = { [K in keyof S]?: PatchFor<S[K]> };
+/** @internal — exposes only what transports need, prevents access to the full client API */
+export interface VoidClientInternal<S extends FlagMap> {
+  readonly envKey?: string;
+  hydrate<K extends keyof S>(key: K, patch: Patch): void;
+}
+
+// ─── Client Options ───────────────────────────────────────────────────────────
+
+interface DevOptions<S extends FlagMap> {
+  schema: S;
+  dev: true;
+  envKey?: never;
+}
+
+interface ProdOptions<S extends FlagMap> {
+  schema: S;
+  envKey: string;
+  dev?: never;
+}
+
+type ClientOptions<S extends FlagMap> = DevOptions<S> | ProdOptions<S>;
+
+// ─── Connect Response Shapes ──────────────────────────────────────────────────
 
 interface PollingConnectResponse {
   transport: 'polling';
@@ -91,7 +122,14 @@ interface SSEConnectResponse {
 
 type ConnectResponse = PollingConnectResponse | SSEConnectResponse;
 
-// ─── ConnectError ─────────────────────────────────────────────────────────────
+// ─── Transport Interface ──────────────────────────────────────────────────────
+
+interface Transport {
+  start(): void | Promise<void>;
+  stop(): void;
+}
+
+// ─── Errors ───────────────────────────────────────────────────────────────────
 
 export class ConnectError extends Error {
   constructor(
@@ -103,25 +141,14 @@ export class ConnectError extends Error {
   }
 }
 
-// ─── Transport interface ──────────────────────────────────────────────────────
-
-interface Transport {
-  start(): void | Promise<void>;
-  stop(): void;
-}
-
-// ─── Store type ───────────────────────────────────────────────────────────────
-
-type Store<S extends FlagMap> = { [K in keyof S]: RuntimeFlag<S[K]> };
-
 // ─── Accessor Builder ─────────────────────────────────────────────────────────
 
-function buildAccessor<T extends boolean | string | number>(
+function buildAccessor<F extends FlagDefinition>(
   assertNotDisposed: () => void,
-  runtime: RuntimeFlag<FlagDefinition>,
+  runtime: RuntimeFlag<F>,
   isRolledOutFor: (userId: string) => boolean,
-): Accessor<FlagDefinition> {
-  const node = Object.create(null);
+): Accessor<F> {
+  const node = Object.create(null) as Accessor<F>;
 
   Object.defineProperty(node, 'enabled', {
     get(): boolean {
@@ -132,9 +159,9 @@ function buildAccessor<T extends boolean | string | number>(
   });
 
   Object.defineProperty(node, 'value', {
-    get(): T {
+    get(): InferFlagValue<F> {
       assertNotDisposed();
-      return (runtime.enabled ? runtime.value : runtime.fallback) as T;
+      return runtime.enabled ? runtime.value : runtime.fallback;
     },
     enumerable: true,
   });
@@ -149,21 +176,67 @@ function buildAccessor<T extends boolean | string | number>(
 
   return Object.freeze(node);
 }
-/** @internal */
-export interface VoidClientInternal<S extends FlagMap> {
-  hydrate<K extends keyof S>(key: K, patch: Patch): void;
-  readonly envKey?: string;
+
+// ─── Transport Factory ────────────────────────────────────────────────────────
+
+function buildTransport<S extends FlagMap>(
+  client: VoidClientInternal<S>,
+  data: ConnectResponse,
+  baseUrl: string,
+): Transport {
+  switch (data.transport) {
+    case 'polling':
+      return new PollingTransport(client, client.envKey!, baseUrl, {
+        interval: data.pollInterval ?? 60_000,
+        onError: (err) => console.error('[VoidClient] polling error:', err),
+      });
+
+    case 'sse': {
+      const fallback = new PollingTransport(client, client.envKey!, baseUrl, {
+        interval: 60_000,
+        onError: (err) => console.error('[VoidClient] fallback polling error:', err),
+      });
+
+      return new SSETransport(client, fallback, {
+        baseUrl,
+        streamUrl: data.streamUrl,
+        onError: (err, attempt) =>
+          console.error(`[VoidClient] SSE error (attempt ${attempt}):`, err),
+        onFallback: () =>
+          console.warn('[VoidClient] SSE permanently lost, switched to polling fallback'),
+      });
+    }
+
+    default: {
+      // Exhaustiveness guard — new variants in ConnectResponse will cause a compile error here.
+      const _exhaustive: never = data;
+      throw new ConnectError(
+        `Unsupported transport type from server: ${(_exhaustive as ConnectResponse).transport}`,
+        0,
+      );
+    }
+  }
 }
+
+// ─── Stable Hash (djb2) ───────────────────────────────────────────────────────
+
+function stableHash(input: string): number {
+  let hash = 5381;
+  for (let i = 0; i < input.length; i++) {
+    hash = (Math.imul(hash, 33) ^ input.charCodeAt(i)) >>> 0;
+  }
+  return hash;
+}
+
 // ─── VoidClient ───────────────────────────────────────────────────────────────
 
 export class VoidClient<S extends FlagMap> {
   public readonly flags: { [K in keyof S]: Accessor<S[K]> };
 
-  // `envKey` is `readonly` — it is set once at construction and never mutated.
-  // It is not `private` so that transport.ts can read it when building the
-  // fallback PollingTransport inside buildTransport().
-  #disposed = false;
+  // Not private — transport.ts reads envKey inside buildTransport().
   readonly envKey?: string;
+
+  #disposed = false;
   private readonly dev: boolean = false;
   private transport?: Transport;
   private connected = false;
@@ -173,117 +246,33 @@ export class VoidClient<S extends FlagMap> {
 
   constructor(opts: ClientOptions<S>) {
     this.store = Object.create(null) as Store<S>;
+
+    // Runtime guard — TypeScript prevents this at compile time, but callers
+    // can bypass with `as any`, so we keep the check.
     if (opts.dev && opts.envKey) {
       throw new VoidFlagError(
         'dev and envKey are mutually exclusive — use one or the other',
       );
     }
-    this.#applySchema(opts.schema);
 
+    this.#applySchema(opts.schema);
     this.flags = this.#buildLazyFlagsObject(opts.schema);
 
     if (opts.envKey) {
       this.envKey = opts.envKey;
-      void this.connect();
-
       this.dev = false;
+      void this.connect();
     } else if (opts.dev) {
       this.dev = true;
       void this.connect();
     }
   }
 
-  // ─── Schema ────────────────────────────────────────────────────────────────
-
-  #applySchema(schema: S): void {
-    for (const key in schema) {
-      const def = schema[key];
-      this.store[key] = Object.assign(Object.create(null), {
-        type: def.type,
-        value: def.fallback as InferFlagValue<typeof def>,
-        fallback: def.fallback as InferFlagValue<typeof def>,
-        enabled: true,
-        // Booleans start at 0% rollout (off by default); other types at 100%.
-        rollout: def.type === 'BOOLEAN' ? 0 : 100,
-      });
-    }
-  }
-
-  // ─── Validation ────────────────────────────────────────────────────────────
-
-  #validateRollout(value: number, key: string): number {
-    if (
-      typeof value !== 'number' ||
-      !Number.isFinite(value) ||
-      value < 0 ||
-      value > 100
-    ) {
-      throw new VoidFlagError(
-        `applyState(): "${key}" rollout must be a number between 0 and 100`,
-      );
-    }
-    return parseFloat(value.toFixed(2));
-  }
-
-  /**
-   * Validates an incoming patch against the stored flag type and returns a
-   * SafeUpdate containing only known, type-correct fields.
-   *
-   * Previously the return value of #validateRollout was not used, meaning
-   * the rounded, clamped value was discarded and the raw input was applied.
-   */
-  #validatePatch(key: string, patch: Patch): Patch {
-    const runtime = this.store[key as keyof S];
-    const safe: Patch = {};
-
-    for (const field of Object.keys(patch)) {
-      if (!ALLOWED_PATCH_KEYS.has(field as keyof Patch)) {
-        throw new VoidFlagError(`Unknown patch field "${field}" on flag "${key}"`);
-      }
-    }
-
-    if (patch.value !== undefined) {
-      switch (runtime.type) {
-        case 'BOOLEAN':
-          if (typeof patch.value !== 'boolean')
-            throw new VoidFlagError(`"${key}" expects a boolean value`);
-          break;
-        case 'STRING':
-          if (typeof patch.value !== 'string')
-            throw new VoidFlagError(`"${key}" expects a string value`);
-          break;
-        case 'NUMBER':
-          if (typeof patch.value !== 'number' || !Number.isFinite(patch.value))
-            throw new VoidFlagError(`"${key}" expects a finite number value`);
-          break;
-        default: {
-          // Exhaustiveness guard — new flag types will cause a compile error here.
-          const _: never = runtime.type;
-          throw new VoidFlagError(`Unknown flag type "${_}" on flag "${key}"`);
-        }
-      }
-      safe.value = patch.value;
-    }
-
-    if (patch.enabled !== undefined) {
-      if (typeof patch.enabled !== 'boolean')
-        throw new VoidFlagError(`"${key}" enabled must be a boolean`);
-      safe.enabled = patch.enabled;
-    }
-
-    if (patch.rollout !== undefined) {
-      // Bug fix: previously called #validateRollout but discarded its return
-      // value, so the raw (unrounded) number was always written to the store.
-      safe.rollout = this.#validateRollout(patch.rollout, key);
-    }
-
-    return safe;
-  }
-
-  // ─── connect() ─────────────────────────────────────────────────────────────
+  // ─── Public API ────────────────────────────────────────────────────────────
 
   async connect(): Promise<void> {
     this.#assertNotDisposed();
+
     if (this.dev) {
       const devPort = readDevPort() ?? VOIDFLAG_DEV_PORT;
       const baseUrl = `http://localhost:${devPort}/api`;
@@ -312,13 +301,13 @@ export class VoidClient<S extends FlagMap> {
           }
         },
       });
-
       void this.transport.start();
       return;
     }
 
     try {
       if (!this.envKey) throw new VoidFlagError('envKey is required.');
+
       const res = await fetch(`${VOIDFLAG_API_URL}/api/connect`, {
         method: 'POST',
         headers: { 'X-API-Key': this.envKey },
@@ -326,8 +315,9 @@ export class VoidClient<S extends FlagMap> {
 
       if (!res.ok)
         throw new ConnectError(`Connect failed with HTTP ${res.status}`, res.status);
+
       const data = (await res.json()) as ConnectResponse;
-      if (this.#disposed) return; // ← add this
+      if (this.#disposed) return;
 
       this.transport?.stop();
       this.transport = undefined;
@@ -337,14 +327,16 @@ export class VoidClient<S extends FlagMap> {
         data,
         `${VOIDFLAG_API_URL}/api`,
       );
+
       await this.transport.start();
-      if (this.#disposed) return; // ← add this
+      if (this.#disposed) return;
 
       this.connected = true;
       console.log(`[voidflag] connected → ${VOIDFLAG_API_URL}`);
     } catch (err) {
       const isFetchFailed = err instanceof TypeError && err.message === 'fetch failed';
       const isConnectError = err instanceof ConnectError;
+
       if (isFetchFailed || isConnectError) {
         console.warn(
           `\n[voidflag] connection failed\n` +
@@ -354,13 +346,14 @@ export class VoidClient<S extends FlagMap> {
         );
         return;
       }
+
       throw err;
     }
   }
-  // ─── applyState() ──────────────────────────────────────────────────────────
 
   applyState(overrides: StateMap<S>): this {
     this.#assertNotDisposed();
+
     if (
       Object.getPrototypeOf(overrides) !== Object.prototype &&
       Object.getPrototypeOf(overrides) !== null
@@ -387,8 +380,7 @@ export class VoidClient<S extends FlagMap> {
       validated.push([key, this.#validatePatch(String(key), patch)]);
     }
 
-    // Apply all validated patches in a second pass so that a validation
-    // failure mid-loop leaves the store completely untouched.
+    // Two-pass apply — a validation failure mid-loop leaves the store untouched.
     for (const [key, patch] of validated) {
       Object.assign(this.store[key], patch);
     }
@@ -400,28 +392,6 @@ export class VoidClient<S extends FlagMap> {
     this.#assertNotDisposed();
     return flags.every((f) => f.enabled);
   }
-
-  // ─── hydrate() ─────────────────────────────────────────────────────────────
-
-  /**
-   * Called by transports to push server-side flag updates into the store.
-   *
-   * Previously the type was `applyPatch` (a local alias with a confusing name
-   * and `value?: InferFlagValue<FlagDefinition>` which admitted `never` for
-   * unknown flag types). Now uses the same `Patch` type as applyState().
-   */
-  /** @internal — called by transports only, not part of the public API */
-
-  hydrate<K extends keyof S>(key: K, patch: Patch): void {
-    this.#assertNotDisposed();
-    this.#assertSafeKey(String(key));
-    this.#assertKeyExists(key);
-
-    const validated = this.#validatePatch(String(key), patch);
-    Object.assign(this.store[key], validated);
-  }
-
-  // ─── snapshot() / debugSnapshots() ─────────────────────────────────────────
 
   snapshot<K extends keyof S>(key: K): Snapshot<S[K]> {
     this.#assertNotDisposed();
@@ -442,8 +412,6 @@ export class VoidClient<S extends FlagMap> {
     ) as { [K in keyof S]: Snapshot<S[K]> };
   }
 
-  // ─── dispose() / isConnected() ─────────────────────────────────────────────
-
   dispose(): void {
     if (this.#disposed) return;
     this.transport?.stop();
@@ -451,8 +419,95 @@ export class VoidClient<S extends FlagMap> {
     this.#disposed = true;
   }
 
-  // ─── Private helpers ────────────────────────────────────────────────────────
+  // ─── Internal (transport layer only) ──────────────────────────────────────
 
+  /** @internal — called by transports only, not part of the public API */
+  hydrate<K extends keyof S>(key: K, patch: Patch): void {
+    this.#assertNotDisposed();
+    this.#assertSafeKey(String(key));
+    this.#assertKeyExists(key);
+    const validated = this.#validatePatch(String(key), patch);
+    Object.assign(this.store[key], validated);
+  }
+
+  // ─── Private ───────────────────────────────────────────────────────────────
+
+  #applySchema(schema: S): void {
+    for (const key in schema) {
+      const def = schema[key];
+      this.store[key] = Object.assign(Object.create(null), {
+        type: def.type,
+        value: def.fallback as InferFlagValue<typeof def>,
+        fallback: def.fallback as InferFlagValue<typeof def>,
+        enabled: true,
+        // Booleans start at 0% rollout (off by default); other types at 100%.
+        rollout: def.type === 'BOOLEAN' ? 0 : 100,
+      });
+    }
+  }
+
+  #validateRollout(value: number, key: string): number {
+    if (
+      typeof value !== 'number' ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      value > 100
+    ) {
+      throw new VoidFlagError(
+        `applyState(): "${key}" rollout must be a number between 0 and 100`,
+      );
+    }
+    return parseFloat(value.toFixed(2));
+  }
+
+  #validatePatch(key: string, patch: Patch): Patch {
+    const runtime = this.store[key as keyof S];
+    const safe: Record<string, unknown> = {};
+
+    for (const field of Object.keys(patch)) {
+      if (!ALLOWED_PATCH_KEYS.has(field as keyof Patch)) {
+        throw new VoidFlagError(`Unknown patch field "${field}" on flag "${key}"`);
+      }
+    }
+
+    if (patch.value !== undefined) {
+      const rawValue: unknown = patch.value;
+
+      switch (runtime.type) {
+        case 'BOOLEAN':
+          if (typeof rawValue !== 'boolean')
+            throw new VoidFlagError(`"${key}" expects a boolean value`);
+          safe.value = rawValue;
+          break;
+        case 'STRING':
+          if (typeof rawValue !== 'string')
+            throw new VoidFlagError(`"${key}" expects a string value`);
+          safe.value = rawValue;
+          break;
+        case 'NUMBER':
+          if (typeof rawValue !== 'number' || !Number.isFinite(rawValue))
+            throw new VoidFlagError(`"${key}" expects a finite number value`);
+          safe.value = rawValue;
+          break;
+        default: {
+          const _: never = runtime.type;
+          throw new VoidFlagError(`Unknown flag type "${_}" on flag "${key}"`);
+        }
+      }
+    }
+
+    if (patch.enabled !== undefined) {
+      if (typeof patch.enabled !== 'boolean')
+        throw new VoidFlagError(`"${key}" enabled must be a boolean`);
+      safe.enabled = patch.enabled;
+    }
+
+    if (patch.rollout !== undefined) {
+      safe.rollout = this.#validateRollout(patch.rollout, key);
+    }
+
+    return safe as Patch;
+  }
   #buildLazyFlagsObject(schema: S): { [K in keyof S]: Accessor<S[K]> } {
     const flags = {} as { [K in keyof S]: Accessor<S[K]> };
     for (const key in schema) {
@@ -472,10 +527,11 @@ export class VoidClient<S extends FlagMap> {
   #buildAccessor<K extends keyof S>(key: K): Accessor<S[K]> {
     return buildAccessor(
       this.#assertNotDisposed.bind(this),
-      this.store[key] as RuntimeFlag<FlagDefinition>,
+      this.store[key],
       (userId: string) => this.#computeRollout(key, userId),
-    ) as Accessor<S[K]>;
+    );
   }
+
   #computeRollout<K extends keyof S>(key: K, userId: string): boolean {
     if (typeof userId !== 'string' || userId.length === 0) {
       throw new VoidFlagError(`isRolledOutFor(): userId must be a non-empty string`);
@@ -487,6 +543,7 @@ export class VoidClient<S extends FlagMap> {
     const bucket = stableHash(`${String(key)}:${userId}`) % 100;
     return bucket < f.rollout;
   }
+
   #assertNotDisposed(): void {
     if (this.#disposed) {
       throw new VoidFlagError(
@@ -506,66 +563,4 @@ export class VoidClient<S extends FlagMap> {
       throw new VoidFlagError(`Flag "${String(key)}" does not exist`);
     }
   }
-}
-
-// ─── Transport factory ────────────────────────────────────────────────────────
-
-function buildTransport<S extends FlagMap>(
-  client: VoidClientInternal<S>,
-  data: ConnectResponse,
-  baseUrl: string,
-): Transport {
-  switch (data.transport) {
-    case 'polling':
-      return new PollingTransport(
-        client as VoidClientInternal<S>,
-        client.envKey!,
-        baseUrl,
-        {
-          interval: data.pollInterval ?? 60_000,
-          onError: (err) => console.error('[VoidClient] polling error:', err),
-        },
-      );
-
-    case 'sse': {
-      const fallback = new PollingTransport(
-        client as VoidClientInternal<S>,
-        client.envKey!,
-        baseUrl,
-        {
-          interval: 60_000,
-          onError: (err) => console.error('[VoidClient] fallback polling error:', err),
-        },
-      );
-
-      return new SSETransport(client as VoidClientInternal<S>, fallback, {
-        baseUrl,
-        streamUrl: data.streamUrl,
-        onError: (err, attempt) =>
-          console.error(`[VoidClient] SSE error (attempt ${attempt}):`, err),
-        onFallback: () =>
-          console.warn('[VoidClient] SSE permanently lost, switched to polling fallback'),
-      });
-    }
-
-    default: {
-      // Exhaustiveness guard: TypeScript will error here if a new variant is
-      // added to ConnectResponse without a corresponding case above.
-      const _exhaustive: never = data;
-      throw new ConnectError(
-        `Unsupported transport type from server: ${(_exhaustive as ConnectResponse).transport}`,
-        0,
-      );
-    }
-  }
-}
-
-// ─── Stable hash (djb2) ───────────────────────────────────────────────────────
-
-function stableHash(input: string): number {
-  let hash = 5381;
-  for (let i = 0; i < input.length; i++) {
-    hash = (Math.imul(hash, 33) ^ input.charCodeAt(i)) >>> 0;
-  }
-  return hash;
 }

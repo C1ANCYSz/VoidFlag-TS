@@ -1,5 +1,5 @@
-import { FlagMap } from './schema.js';
-import { RuntimeFlag, VoidClient, VoidClientInternal } from './sdk.js';
+import { FlagMap } from './sdk.js';
+import { Patch, VoidClientInternal } from './sdk.js';
 
 // ─── Transport interface ──────────────────────────────────────────────────────
 
@@ -10,11 +10,10 @@ interface Transport {
 
 // ─── Payload ──────────────────────────────────────────────────────────────────
 
-type FlagPayload<S extends FlagMap> = {
-  flags: Record<string, Partial<RuntimeFlag<S[keyof S]>>>;
+type FlagPayload = {
+  flags: Record<string, Patch>;
   version: number;
 };
-
 // ─── Errors ───────────────────────────────────────────────────────────────────
 
 export class FetchFlagsError extends Error {
@@ -139,7 +138,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
     }
 
     this.failCount = 0;
-    const data = (await res.json()) as FlagPayload<S>;
+    const data = (await res.json()) as FlagPayload;
     this.version = data.version;
     for (const key in data.flags) {
       this.client.hydrate(key as keyof S, data.flags[key]);
@@ -235,7 +234,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
     };
 
     this.source.addEventListener('update', (e: MessageEvent) => {
-      const payload = JSON.parse(e.data as string) as FlagPayload<S>;
+      const payload = JSON.parse(e.data as string) as FlagPayload;
       for (const key in payload.flags) {
         this.client.hydrate(key as keyof S, payload.flags[key]);
       }

@@ -22,8 +22,9 @@ export interface NumberFlag {
 
 export type FlagDefinition = BooleanFlag | StringFlag | NumberFlag;
 
-export type FlagMap = Record<string, FlagDefinition>;
-
+export interface FlagMap {
+  [key: string]: FlagDefinition;
+}
 /* --------------------------------------------
    Fluent Builder Base
 -------------------------------------------- */

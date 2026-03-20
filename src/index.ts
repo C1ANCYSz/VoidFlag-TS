@@ -1,13 +1,3 @@
-export {
-  defineFlags,
-  boolean,
-  string,
-  number,
-  BooleanFlag,
-  FlagDefinition,
-  FlagMap,
-  NumberFlag,
-  StringFlag,
-} from './schema.js';
-export { VoidClient } from './sdk.js';
+export { defineFlags, boolean, string, number } from './schema.js';
+export { VoidClient, FlagMap } from './sdk.js';
 export { VoidFlagError } from './VoidFlagError.js';
