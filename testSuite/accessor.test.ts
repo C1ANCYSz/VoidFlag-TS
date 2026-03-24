@@ -101,15 +101,15 @@ describe('node shape contracts', () => {
   });
 
   it('snapshot() rollout defaults to 100 for string and number flags', () => {
-    expect(vf.snapshot('themeColor').rollout).toBe(100);
-    expect(vf.snapshot('fontSize').rollout).toBe(100);
-    expect(vf.snapshot('checkoutVariant').rollout).toBe(100);
+    expect(vf.snapshot(vf.flags.themeColor).rollout).toBe(100);
+    expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(100);
+    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(100);
   });
 
   it('snapshot() rollout defaults to 0 for boolean flags', () => {
-    expect(vf.snapshot('darkMode').rollout).toBe(0);
-    expect(vf.snapshot('paymentSwitch').rollout).toBe(0);
-    expect(vf.snapshot('betaAccess').rollout).toBe(0);
+    expect(vf.snapshot(vf.flags.darkMode).rollout).toBe(0);
+    expect(vf.snapshot(vf.flags.paymentSwitch).rollout).toBe(0);
+    expect(vf.snapshot(vf.flags.betaAccess).rollout).toBe(0);
   });
 
   it('accessor object is frozen — cannot be mutated from outside', () => {
@@ -171,14 +171,14 @@ describe('live reads through accessors', () => {
 
   it('snapshot().rollout reflects hydrated rollout', () => {
     vf.hydrate('maxItems', { rollout: 42 });
-    expect(vf.snapshot('maxItems').rollout).toBe(42);
+    expect(vf.snapshot(vf.flags.maxItems).rollout).toBe(42);
   });
 
   it('snapshot().fallback never changes when only value changes', () => {
     vf.hydrate('themeColor', { value: 'orange' });
-    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
+    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
     vf.hydrate('themeColor', { value: 'red' });
-    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
+    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
   });
 
   it('re-enabling returns live value, not fallback', () => {
@@ -212,12 +212,12 @@ describe('live reads through accessors', () => {
 
   it('snapshot().value and flags.*.value always agree', () => {
     vf.hydrate('themeColor', { value: 'red' });
-    expect(vf.snapshot('themeColor').value).toBe(vf.flags.themeColor.value);
+    expect(vf.snapshot(vf.flags.themeColor).value).toBe(vf.flags.themeColor.value);
 
     vf.hydrate('themeColor', { enabled: false });
     // When disabled, accessor returns fallback; snapshot returns raw stored value
     expect(vf.flags.themeColor.value).toBe('#000000');
-    expect(vf.snapshot('themeColor').enabled).toBe(false);
+    expect(vf.snapshot(vf.flags.themeColor).enabled).toBe(false);
   });
 });
 

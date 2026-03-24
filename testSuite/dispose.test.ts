@@ -55,7 +55,7 @@ describe('API methods throw after dispose', () => {
 
   it('snapshot() throws VoidFlagError', () => {
     vf.dispose();
-    expect(() => vf.snapshot('themeColor')).toThrow(VoidFlagError);
+    expect(() => vf.snapshot(vf.flags.themeColor)).toThrow(VoidFlagError);
   });
 
   it('debugSnapshots() throws VoidFlagError', () => {
@@ -71,7 +71,7 @@ describe('API methods throw after dispose', () => {
   it('error message mentions "disposed"', () => {
     vf.dispose();
     try {
-      vf.snapshot('darkMode');
+      vf.snapshot(vf.flags.darkMode);
     } catch (e) {
       expect((e as VoidFlagError).message).toMatch(/disposed/i);
     }

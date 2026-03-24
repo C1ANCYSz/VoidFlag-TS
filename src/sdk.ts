@@ -393,22 +393,28 @@ export class VoidClient<S extends FlagMap> {
     return flags.every((f) => f.enabled);
   }
 
-  snapshot<K extends keyof S>(key: K): Snapshot<S[K]> {
+  snapshot<K extends keyof S>(flag: Accessor<S[K]>): Snapshot<S[K]> {
     this.#assertNotDisposed();
-    this.#assertKeyExists(key);
+    const key = (Object.keys(this.store) as (keyof S)[]).find(
+      (k) => this.flags[k] === flag,
+    );
+    if (!key) throw new VoidFlagError('Unknown flag accessor');
     const f = this.store[key];
     return Object.freeze({
       enabled: f.enabled,
       value: f.value,
       fallback: f.fallback,
       rollout: f.rollout,
-    }) as Snapshot<S[K]>;
+    });
   }
 
   debugSnapshots(): { [K in keyof S]: Snapshot<S[K]> } {
     this.#assertNotDisposed();
     return Object.fromEntries(
-      Object.keys(this.store).map((k) => [k, this.snapshot(k as keyof S)]),
+      (Object.keys(this.store) as (keyof S)[]).map((k) => [
+        k,
+        this.snapshot(this.flags[k]),
+      ]),
     ) as { [K in keyof S]: Snapshot<S[K]> };
   }
 

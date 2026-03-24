@@ -134,9 +134,9 @@ describe('flags.*.value', () => {
 
   it('throws VoidFlagError for unknown key via snapshot', () => {
     // @ts-expect-error
-    expect(() => vf.snapshot('doesNotExist')).toThrow(VoidFlagError);
+    expect(() => vf.snapshot(vf.flags.doesNotExist as any)).toThrow(VoidFlagError);
     // @ts-expect-error
-    expect(() => vf.snapshot('doesNotExist')).toThrow(/does not exist/);
+    expect(() => vf.snapshot('doesNotExist')).toThrow(/Unknown flag accessor/);
   });
 });
 
@@ -215,7 +215,7 @@ describe('hydrate()', () => {
     vf.hydrate('fontSize', { value: 32 });
     expect(vf.flags.fontSize.value).toBe(32);
     expect(vf.flags.fontSize.enabled).toBe(true);
-    expect(vf.snapshot('fontSize').fallback).toBe(16);
+    expect(vf.snapshot(vf.flags.fontSize).fallback).toBe(16);
   });
 
   it('can update value, enabled, and rollout independently', () => {
@@ -224,14 +224,14 @@ describe('hydrate()', () => {
     vf.hydrate('checkoutVariant', { enabled: false });
 
     expect(vf.flags.checkoutVariant.value).toBe('control'); // disabled → fallback
-    expect(vf.snapshot('checkoutVariant').rollout).toBe(20);
+    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(20);
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
   });
 
   it('hydrating value changes what is returned when disabled', () => {
     vf.hydrate('themeColor', { value: 'white', enabled: false });
     expect(vf.flags.themeColor.value).toBe('#000000');
-    expect(vf.snapshot('themeColor').fallback).toBe('#000000'); // untouched
+    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000'); // untouched
   });
 
   it('hydrating all flags — all reflect immediately', () => {
@@ -251,7 +251,7 @@ describe('hydrate()', () => {
     expect(vf.flags.paymentSwitch.value).toBe(false);
     expect(vf.flags.maintenanceMode.value).toBe(false); // disabled → fallback
     expect(vf.flags.themeColor.value).toBe('red');
-    expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
+    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(50);
     expect(vf.flags.apiRegion.value).toBe('eu-west-1');
     expect(vf.flags.bannerCopy.value).toBe('New Feature!');
     expect(vf.flags.fontSize.value).toBe(18);
@@ -267,7 +267,7 @@ describe('hydrate()', () => {
       rollout: 50,
     });
     expect(vf.flags.checkoutVariant.value).toBe('treatment');
-    expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
+    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(50);
 
     vf.hydrate('checkoutVariant', { enabled: false });
     expect(vf.flags.checkoutVariant.value).toBe('control');
@@ -278,6 +278,6 @@ describe('hydrate()', () => {
       rollout: 100,
     });
     expect(vf.flags.checkoutVariant.value).toBe('treatment-v2');
-    expect(vf.snapshot('checkoutVariant').rollout).toBe(100);
+    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(100);
   });
 });

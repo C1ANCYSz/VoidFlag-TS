@@ -59,7 +59,7 @@ describe('VULN 1 — Object.assign writes extra keys straight to the runtime sto
       } as any);
     }).toThrowError(VoidFlagError);
     // The fallback should still be the schema-defined 'light'
-    expect(client.snapshot('theme').fallback).toBe('light');
+    expect(client.snapshot(client.flags.theme).fallback).toBe('light');
   });
 
   it('should NOT let a patch overwrite the stored type via applyState()', () => {
@@ -82,7 +82,7 @@ describe('VULN 1 — Object.assign writes extra keys straight to the runtime sto
     const evilPatch = { value: 'dark', __evilProp: 'injected' } as any;
     expect(() => client.applyState({ theme: evilPatch })).toThrow(VoidFlagError);
     // The store's runtime should not have __evilProp
-    const snap = client.snapshot('theme') as any;
+    const snap = client.snapshot(client.flags.theme) as any;
     expect(snap.__evilProp).toBeUndefined();
   });
 });
@@ -589,7 +589,7 @@ describe('VULN 13 — explicit undefined value vs missing value key', () => {
     const client = make();
     client.applyState({ theme: {} as any });
     expect(client.flags.theme.value).toBe('light');
-    expect(client.snapshot('theme').rollout).toBe(100);
+    expect(client.snapshot(client.flags.theme).rollout).toBe(100);
     expect(client.flags.theme.enabled).toBe(true);
   });
 
@@ -677,7 +677,7 @@ describe('VULN 15 — dispose() interleaving with applyState() and accessors', (
     client.dispose();
     expect(() => client.flags.theme.value).toThrowError(VoidFlagError);
     expect(() => client.flags.theme.enabled).toThrowError(VoidFlagError);
-    expect(() => client.snapshot('theme')).toThrowError(VoidFlagError);
+    expect(() => client.snapshot(client.flags.theme)).toThrowError(VoidFlagError);
     expect(() => client.debugSnapshots()).toThrowError(VoidFlagError);
     expect(() => client.flags.theme.isRolledOutFor('u')).toThrowError(VoidFlagError);
     expect(() => client.hydrate('theme', {})).toThrowError(VoidFlagError);
@@ -856,7 +856,7 @@ describe('VULN 19 — applyState() with massive invalid overrides object', () =>
 describe('VULN 20 — snapshot is a true immutable copy, not a live reference', () => {
   it('snapshot fields cannot be reassigned', () => {
     const client = make();
-    const snap = client.snapshot('theme') as any;
+    const snap = client.snapshot(client.flags.theme) as any;
     expect(() => {
       snap.value = 'mutated';
     }).toThrow();
@@ -870,7 +870,7 @@ describe('VULN 20 — snapshot is a true immutable copy, not a live reference', 
 
   it('mutating a snapshot does not affect the live store', () => {
     const client = make();
-    const snap = client.snapshot('theme') as any;
+    const snap = client.snapshot(client.flags.theme) as any;
     try {
       snap.value = 'mutated';
     } catch (_) {}
@@ -880,7 +880,7 @@ describe('VULN 20 — snapshot is a true immutable copy, not a live reference', 
   it('snapshot taken after applyState() is a point-in-time copy, not a live view', () => {
     const client = make();
     client.applyState({ theme: { value: 'dark' } });
-    const snap = client.snapshot('theme');
+    const snap = client.snapshot(client.flags.theme);
     client.applyState({ theme: { value: 'light' } }); // revert
     expect(snap.value).toBe('dark'); // snapshot still holds the old value
     expect(client.flags.theme.value).toBe('light'); // live store updated

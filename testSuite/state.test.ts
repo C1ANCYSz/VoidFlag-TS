@@ -83,10 +83,10 @@ describe('constructor — initial state', () => {
 
   it('sets rollout=0 for boolean flags and rollout=100 for string/number flags', () => {
     const client = makeBigClient();
-    expect(client.snapshot('darkMode').rollout).toBe(0);
-    expect(client.snapshot('betaMode').rollout).toBe(0);
-    expect(client.snapshot('theme').rollout).toBe(100);
-    expect(client.snapshot('fontSize').rollout).toBe(100);
+    expect(client.snapshot(client.flags.darkMode).rollout).toBe(0);
+    expect(client.snapshot(client.flags.betaMode).rollout).toBe(0);
+    expect(client.snapshot(client.flags.theme).rollout).toBe(100);
+    expect(client.snapshot(client.flags.theme).rollout).toBe(100);
   });
 
   it('initial state can be applied via applyState() after construction', () => {
@@ -100,7 +100,7 @@ describe('constructor — initial state', () => {
     expect(client.flags.darkMode.value).toBe(true);
     expect(client.flags.theme.value).toBe('dark');
     expect(client.flags.fontSize.value).toBe(24);
-    expect(client.snapshot('rateLimit').rollout).toBe(75);
+    expect(client.snapshot(client.flags.rateLimit).rollout).toBe(75);
   });
 
   it('applyState() does not mutate flags not listed', () => {
@@ -160,7 +160,7 @@ describe('applyState() — value overrides', () => {
   it('overriding a value does not touch the fallback', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
-    expect(client.snapshot('theme').fallback).toBe('light');
+    expect(client.snapshot(client.flags.theme).fallback).toBe('light');
   });
 
   it('overriding a value does not change enabled state', () => {
@@ -288,19 +288,19 @@ describe('applyState() — rollout overrides', () => {
   it('sets rollout to a valid boundary value 0', () => {
     const client = makeBigClient();
     client.applyState({ theme: { rollout: 0 } });
-    expect(client.snapshot('theme').rollout).toBe(0);
+    expect(client.snapshot(client.flags.theme).rollout).toBe(0);
   });
 
   it('sets rollout to a valid boundary value 100', () => {
     const client = makeBigClient();
     client.applyState({ fontSize: { rollout: 100 } });
-    expect(client.snapshot('fontSize').rollout).toBe(100);
+    expect(client.snapshot(client.flags.theme).rollout).toBe(100);
   });
 
   it('sets rollout to an arbitrary mid-range integer', () => {
     const client = makeBigClient();
     client.applyState({ newOnboarding: { rollout: 42 } });
-    expect(client.snapshot('newOnboarding').rollout).toBe(42);
+    expect(client.snapshot(client.flags.newOnboarding).rollout).toBe(42);
   });
 
   it('rollout=100 means isRolledOutFor() is always true (when enabled)', () => {
@@ -361,7 +361,7 @@ describe('applyState() — rollout overrides', () => {
   it('accepts float rollout like 50.5 and rounds to 2dp', () => {
     const client = makeBigClient();
     client.applyState({ theme: { rollout: 50.5 } });
-    expect(client.snapshot('theme').rollout).toBe(50.5);
+    expect(client.snapshot(client.flags.theme).rollout).toBe(50.5);
   });
 
   it('throws for NaN rollout', () => {
@@ -553,7 +553,7 @@ describe('accessor reactivity after applyState()', () => {
     const client = makeBigClient();
     const accessor = client.flags.fontSize;
     client.applyState({ fontSize: { value: 32 } });
-    expect(client.snapshot('fontSize').fallback).toBe(16);
+    expect(client.snapshot(client.flags.fontSize).fallback).toBe(16);
     // accessor value reflects the new hydrated value
     expect(accessor.value).toBe(32);
   });
@@ -561,7 +561,7 @@ describe('accessor reactivity after applyState()', () => {
   it('snapshot rollout updates after applyState()', () => {
     const client = makeBigClient();
     client.applyState({ paginationSize: { rollout: 55 } });
-    expect(client.snapshot('paginationSize').rollout).toBe(55);
+    expect(client.snapshot(client.flags.paginationSize).rollout).toBe(55);
   });
 
   it('accessor is frozen (immutable shape)', () => {
@@ -645,7 +645,7 @@ describe('snapshot() / debugSnapshots() after applyState()', () => {
   it('snapshot reflects applied state', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark', rollout: 80, enabled: false } });
-    const snap = client.snapshot('theme');
+    const snap = client.snapshot(client.flags.theme);
     expect(snap.value).toBe('dark');
     expect(snap.rollout).toBe(80);
     expect(snap.enabled).toBe(false);
@@ -654,14 +654,14 @@ describe('snapshot() / debugSnapshots() after applyState()', () => {
 
   it('snapshot is frozen', () => {
     const client = makeBigClient();
-    const snap = client.snapshot('fontSize');
+    const snap = client.snapshot(client.flags.theme);
     expect(Object.isFrozen(snap)).toBe(true);
   });
 
   it('snapshot does not update after further applyState() — it is a point-in-time copy', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
-    const snap = client.snapshot('theme');
+    const snap = client.snapshot(client.flags.theme);
     client.applyState({ theme: { value: 'solarized' } });
     expect(snap.value).toBe('dark');
     expect(client.flags.theme.value).toBe('solarized');
@@ -843,11 +843,11 @@ describe('full-schema stress test', () => {
 
     // disabled flag returns fallback
     expect(client.flags.maintenanceMode.enabled).toBe(false);
-    expect(client.snapshot('maintenanceMode').fallback).toBe(false);
+    expect(client.snapshot(client.flags.maintenanceMode).fallback).toBe(false);
 
     // rollouts
-    expect(client.snapshot('darkMode').rollout).toBe(80);
-    expect(client.snapshot('rateLimit').rollout).toBe(60);
-    expect(client.snapshot('featurePreview').rollout).toBe(5);
+    expect(client.snapshot(client.flags.darkMode).rollout).toBe(80);
+    expect(client.snapshot(client.flags.rateLimit).rollout).toBe(60);
+    expect(client.snapshot(client.flags.featurePreview).rollout).toBe(5);
   });
 });

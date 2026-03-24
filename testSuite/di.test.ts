@@ -436,14 +436,14 @@ describe('guard rails — invalid inputs must not corrupt injection state', () =
 describe('snapshot — captures injection state point-in-time', () => {
   it('snapshot reflects current injection-driving values', () => {
     vf.hydrate('useStripe', { value: true, rollout: 75 });
-    const snap = vf.snapshot('useStripe');
+    const snap = vf.snapshot(vf.flags.useStripe);
     expect(snap.value).toBe(true);
     expect(snap.rollout).toBe(75);
     expect(snap.enabled).toBe(true);
   });
 
   it('snapshot is frozen — cannot be mutated', () => {
-    const snap = vf.snapshot('useStripe') as any;
+    const snap = vf.snapshot(vf.flags.useStripe) as any;
     expect(Object.isFrozen(snap)).toBe(true);
     expect(() => {
       snap.value = true;
@@ -451,7 +451,7 @@ describe('snapshot — captures injection state point-in-time', () => {
   });
 
   it('snapshot does not change after subsequent hydration', () => {
-    const snap = vf.snapshot('useStripe');
+    const snap = vf.snapshot(vf.flags.useStripe);
     vf.hydrate('useStripe', { value: true });
     expect(snap.value).toBe(false); // snapshot is point-in-time
   });
