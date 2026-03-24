@@ -26,9 +26,9 @@ describe('unknown key access', () => {
   it('snapshot() throws VoidFlagError for unknown key', () => {
     const vf = makeClient();
     // @ts-expect-error
-    expect(() => vf.snapshot(vf.flags.fakeKey)).toThrow(VoidFlagError);
+    expect(() => vf.snapshot('fake_key')).toThrow(VoidFlagError);
     // @ts-expect-error
-    expect(() => vf.snapshot(vf.flags.fakeKey)).toThrow(/Unknown flag accessor/);
+    expect(() => vf.snapshot('fake_key')).toThrow(/does not exist/);
   });
 
   it('hydrate() throws VoidFlagError for unknown key', () => {
@@ -192,7 +192,7 @@ describe('type validation at runtime', () => {
   it('rollout rejects value above 100', () => {
     const vf = makeClient();
     expect(() => vf.hydrate('theme', { rollout: 101 })).toThrow(VoidFlagError);
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(100);
+    expect(vf.snapshot('theme').rollout).toBe(100);
   });
 
   it('rollout rejects value below 0', () => {
@@ -224,19 +224,19 @@ describe('rollout boundary values', () => {
   it('rollout 0 is valid', () => {
     const vf = makeClient();
     expect(() => vf.hydrate('theme', { rollout: 0 })).not.toThrow();
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(0);
+    expect(vf.snapshot('theme').rollout).toBe(0);
   });
 
   it('rollout 100 is valid', () => {
     const vf = makeClient();
     expect(() => vf.hydrate('theme', { rollout: 100 })).not.toThrow();
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(100);
+    expect(vf.snapshot('theme').rollout).toBe(100);
   });
 
   it('rollout 50.5 is valid and stored rounded', () => {
     const vf = makeClient();
     expect(() => vf.hydrate('theme', { rollout: 50.5 })).not.toThrow();
-    expect(vf.snapshot(vf.flags.theme).rollout).toBeCloseTo(50.5, 2);
+    expect(vf.snapshot('theme').rollout).toBeCloseTo(50.5, 2);
   });
 });
 
@@ -267,7 +267,7 @@ describe('isRolledOutFor() guard rails', () => {
       vf.flags.theme.isRolledOutFor('');
     } catch (_) {}
     expect(vf.flags.theme.value).toBe('ocean');
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(100);
+    expect(vf.snapshot('theme').rollout).toBe(100);
   });
 });
 
@@ -309,7 +309,7 @@ describe('applyState atomicity', () => {
       }),
     ).toThrow(VoidFlagError);
     expect(vf.flags.darkMode.value).toBe(false);
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(100);
+    expect(vf.snapshot('theme').rollout).toBe(100);
   });
 
   it('valid applyState updates all specified flags atomically', () => {
@@ -321,7 +321,7 @@ describe('applyState atomicity', () => {
     });
     expect(vf.flags.darkMode.value).toBe(true);
     expect(vf.flags.theme.value).toBe('dark');
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(80);
+    expect(vf.snapshot('theme').rollout).toBe(80);
     expect(vf.flags.retryCount.value).toBe(5);
   });
 });
@@ -376,7 +376,7 @@ describe('store integrity after errors', () => {
     vf.hydrate('theme', { value: 'ocean' });
     vf.hydrate('theme', { enabled: false });
     vf.hydrate('theme', { rollout: 50 });
-    expect(vf.snapshot(vf.flags.theme).fallback).toBe('light');
+    expect(vf.snapshot('theme').fallback).toBe('light');
   });
 
   it('enabled defaults to true and is not changed by value-only hydrate', () => {

@@ -23,32 +23,32 @@ beforeEach(() => {
 
 describe('snapshot()', () => {
   it('returns a frozen plain object', () => {
-    expect(Object.isFrozen(vf.snapshot(vf.flags.themeColor))).toBe(true);
+    expect(Object.isFrozen(vf.snapshot('themeColor'))).toBe(true);
   });
 
   it('mutation attempt on snapshot throws', () => {
-    const snap = vf.snapshot(vf.flags.themeColor);
+    const snap = vf.snapshot('themeColor');
     expect(() => {
       (snap as any).value = 'hacked';
     }).toThrow();
   });
 
   it('is a point-in-time copy — later hydration does not change it', () => {
-    const snap = vf.snapshot(vf.flags.themeColor);
+    const snap = vf.snapshot('themeColor');
     vf.hydrate('themeColor', { value: 'red' });
     expect(snap.value).toBe('#000000');
     expect(vf.flags.themeColor.value).toBe('red');
   });
 
   it('each snapshot() call returns a distinct object', () => {
-    const a = vf.snapshot(vf.flags.themeColor);
-    const b = vf.snapshot(vf.flags.themeColor);
+    const a = vf.snapshot('themeColor');
+    const b = vf.snapshot('themeColor');
     expect(a).not.toBe(b);
   });
 
   it('snapshot reflects disabled state — preserves stored value', () => {
     vf.hydrate('fontSize', { value: 32, enabled: false });
-    const snap = vf.snapshot(vf.flags.fontSize) as any;
+    const snap = vf.snapshot('fontSize') as any;
     expect(snap.value).toBe(32);
     expect(snap.enabled).toBe(false);
     expect(snap.fallback).toBe(16);
@@ -61,12 +61,12 @@ describe('snapshot()', () => {
   });
 
   it('boolean snapshot has rollout key', () => {
-    const snap = vf.snapshot(vf.flags.darkMode);
+    const snap = vf.snapshot('darkMode');
     expect('rollout' in snap).toBe(true);
   });
 
   it('boolean snapshot shape: enabled, value, fallback only', () => {
-    const snap = vf.snapshot(vf.flags.paymentSwitch);
+    const snap = vf.snapshot('paymentSwitch');
     expect(Object.keys(snap).sort()).toEqual(
       ['enabled', 'fallback', 'value', 'rollout'].sort(),
     );
@@ -74,13 +74,13 @@ describe('snapshot()', () => {
 
   it('variant snapshot includes rollout', () => {
     vf.hydrate('themeColor', { rollout: 60 });
-    expect((vf.snapshot(vf.flags.themeColor) as any).rollout).toBe(60);
+    expect((vf.snapshot('themeColor') as any).rollout).toBe(60);
   });
 
   it('two snapshots at different times capture different values', () => {
-    const s1 = vf.snapshot(vf.flags.bannerCopy) as any;
+    const s1 = vf.snapshot('bannerCopy') as any;
     vf.hydrate('bannerCopy', { value: 'Updated!' });
-    const s2 = vf.snapshot(vf.flags.bannerCopy) as any;
+    const s2 = vf.snapshot('bannerCopy') as any;
     expect(s1.value).toBe('Welcome');
     expect(s2.value).toBe('Updated!');
   });
@@ -89,7 +89,7 @@ describe('snapshot()', () => {
     const snapshots: any[] = [];
     for (let i = 0; i < 20; i++) {
       vf.hydrate('itemsPerPage', { value: i * 5 });
-      snapshots.push(vf.snapshot(vf.flags.itemsPerPage));
+      snapshots.push(vf.snapshot('itemsPerPage'));
     }
     for (let i = 0; i < 20; i++) {
       expect(snapshots[i].value).toBe(i * 5);
@@ -125,7 +125,7 @@ describe('debugSnapshots()', () => {
   it('values match individual snapshots', () => {
     vf.hydrate('themeColor', { value: 'dark' });
     const all = vf.debugSnapshots();
-    const single = vf.snapshot(vf.flags.themeColor);
+    const single = vf.snapshot('themeColor');
     expect(all.themeColor).toEqual(single);
   });
 

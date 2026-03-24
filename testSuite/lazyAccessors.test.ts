@@ -146,22 +146,22 @@ describe('lazy accessors — large schema (55 flags)', () => {
   it('boolean flags have rollout on their snapshot', () => {
     const boolKeys = ALL_KEYS.filter((k) => schema[k].type === 'BOOLEAN');
     for (const key of boolKeys) {
-      expect('rollout' in vf.snapshot(vf.flags[key])).toBe(true);
+      expect('rollout' in vf.snapshot(key)).toBe(true);
     }
   });
 
   it('string and number flags all have a rollout on their snapshot', () => {
     const variantKeys = ALL_KEYS.filter((k) => schema[k].type !== 'BOOLEAN');
     for (const key of variantKeys) {
-      expect('rollout' in vf.snapshot(vf.flags[key])).toBe(true);
+      expect('rollout' in vf.snapshot(key)).toBe(true);
     }
   });
 
   it('all variant rollouts default to 100', () => {
-    expect(vf.snapshot(vf.flags.themeColor).rollout).toBe(100);
-    expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(100);
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(100);
-    expect(vf.snapshot(vf.flags.sessionTimeout).rollout).toBe(100);
+    expect(vf.snapshot('themeColor').rollout).toBe(100);
+    expect(vf.snapshot('fontSize').rollout).toBe(100);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(100);
+    expect(vf.snapshot('sessionTimeout').rollout).toBe(100);
   });
 
   // --- Seal -------------------------------------------------------
@@ -183,7 +183,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
   it('hydrating a string flag is reflected immediately on the accessor', () => {
     vf.hydrate('themeColor', { value: 'red' });
     expect(vf.flags.themeColor.value).toBe('red');
-    expect(vf.snapshot(vf.flags.themeColor).value).toBe('red');
+    expect(vf.snapshot('themeColor').value).toBe('red');
   });
 
   it('hydrating a number flag is reflected immediately on the accessor', () => {
@@ -198,13 +198,13 @@ describe('lazy accessors — large schema (55 flags)', () => {
 
   it('hydrating rollout is reflected immediately via snapshot', () => {
     vf.hydrate('checkoutVariant', { rollout: 42 });
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(42);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(42);
   });
 
   it('disabling a flag makes value return fallback', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: false });
     expect(vf.flags.themeColor.value).toBe('#000000');
-    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     expect(vf.flags.themeColor.enabled).toBe(false);
   });
 
@@ -212,7 +212,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
     expect(() => {
       vf.hydrate('fontSize', { fallback: 999, enabled: false } as any);
     }).toThrow(VoidFlagError);
-    expect(vf.snapshot(vf.flags.fontSize).fallback).toBe(16);
+    expect(vf.snapshot('fontSize').fallback).toBe(16);
     expect(vf.flags.fontSize.value).toBe(16);
   });
 
@@ -325,7 +325,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
   it('rollout changes mid-loop are reflected via snapshot', () => {
     for (let i = 0; i <= 100; i += 10) {
       vf.hydrate('checkoutVariant', { rollout: i });
-      expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(i);
+      expect(vf.snapshot('checkoutVariant').rollout).toBe(i);
     }
   });
 
@@ -334,7 +334,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
   it('fallback stays unchanged across 10,000 value hydrations', () => {
     for (let i = 0; i < 10_000; i++) {
       vf.hydrate('themeColor', { value: `color-${i}` });
-      expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
+      expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     }
   });
 
@@ -478,7 +478,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
 
   it('snapshot captures a frozen point-in-time copy', () => {
     vf.hydrate('themeColor', { value: 'snap-color' });
-    const snap = vf.snapshot(vf.flags.themeColor);
+    const snap = vf.snapshot('themeColor');
     vf.hydrate('themeColor', { value: 'changed' });
     expect(snap.value).toBe('snap-color');
     expect(vf.flags.themeColor.value).toBe('changed');
@@ -558,7 +558,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
       }
       for (const key of ALL_KEYS) {
         // When enabled, snapshot raw value === accessor resolved value
-        expect(vf.snapshot(vf.flags[key]).value).toBe(vf.flags[key].value);
+        expect(vf.snapshot(key).value).toBe(vf.flags[key].value);
       }
     }
   });

@@ -215,19 +215,19 @@ describe('Rollout boundary enforcement', () => {
   it('accepts 50.5 and rounds to 50.50', () => {
     const vf = makeClient();
     vf.applyState({ theme: { rollout: 50.5 } });
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(50.5);
+    expect(vf.snapshot('theme').rollout).toBe(50.5);
   });
 
   it('accepts 33.333 and rounds to 33.33', () => {
     const vf = makeClient();
     vf.applyState({ theme: { rollout: 33.333 } });
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(33.33);
+    expect(vf.snapshot('theme').rollout).toBe(33.33);
   });
 
   it('accepts 99.999 and rounds to 100.00', () => {
     const vf = makeClient();
     vf.applyState({ theme: { rollout: 99.999 } });
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(100);
+    expect(vf.snapshot('theme').rollout).toBe(100);
   });
 
   it('rejects NaN', () => {
@@ -248,19 +248,19 @@ describe('Rollout boundary enforcement', () => {
   it('accepts boundary 0', () => {
     const vf = makeClient();
     vf.applyState({ darkMode: { rollout: 0 } });
-    expect(vf.snapshot(vf.flags.darkMode).rollout).toBe(0);
+    expect(vf.snapshot('darkMode').rollout).toBe(0);
   });
 
   it('accepts boundary 100', () => {
     const vf = makeClient();
     vf.applyState({ fontSize: { rollout: 100 } });
-    expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(100);
+    expect(vf.snapshot('fontSize').rollout).toBe(100);
   });
 
   it('accepts integer in range', () => {
     const vf = makeClient();
     vf.applyState({ theme: { rollout: 37 } });
-    expect(vf.snapshot(vf.flags.theme).rollout).toBe(37);
+    expect(vf.snapshot('theme').rollout).toBe(37);
   });
 });
 
@@ -404,7 +404,7 @@ describe('applyState() atomicity', () => {
       }),
     ).toThrow();
     expect(vf.flags.darkMode.value).toBe(false);
-    expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(100);
+    expect(vf.snapshot('fontSize').rollout).toBe(100);
   });
 
   it('applies cleanly when all patches are valid', () => {
@@ -464,7 +464,7 @@ describe('hydrate() validation', () => {
   it('accepts valid hydration and mutates state', () => {
     const vf = makeClient();
     vf.hydrate('theme', { value: 'ocean', enabled: false, rollout: 50 });
-    const snap = vf.snapshot(vf.flags.theme);
+    const snap = vf.snapshot('theme');
     expect(snap.value).toBe('ocean');
     expect(snap.enabled).toBe(false);
     expect(snap.rollout).toBe(50);
@@ -472,9 +472,9 @@ describe('hydrate() validation', () => {
 
   it('hydrating with empty object does not throw and does not mutate', () => {
     const vf = makeClient();
-    const before = vf.snapshot(vf.flags.theme);
+    const before = vf.snapshot('theme');
     vf.hydrate('theme', {});
-    const after = vf.snapshot(vf.flags.theme);
+    const after = vf.snapshot('theme');
     expect(after.value).toBe(before.value);
     expect(after.enabled).toBe(before.enabled);
   });
@@ -556,7 +556,7 @@ describe('snapshot() correctness', () => {
   it('snapshot.value is raw stored value, NOT resolved (disabled flag)', () => {
     const vf = makeClient();
     vf.applyState({ theme: { value: 'dark', enabled: false } });
-    const snap = vf.snapshot(vf.flags.theme);
+    const snap = vf.snapshot('theme');
     // snapshot exposes the raw stored value
     expect(snap.value).toBe('dark');
     // accessor resolves through enabled → returns fallback
@@ -565,7 +565,7 @@ describe('snapshot() correctness', () => {
 
   it('snapshot is frozen — direct mutation throws', () => {
     const vf = makeClient();
-    const snap = vf.snapshot(vf.flags.theme) as any;
+    const snap = vf.snapshot('theme') as any;
     expect(Object.isFrozen(snap)).toBe(true);
     expect(() => {
       snap.value = 'hacked';
@@ -574,7 +574,7 @@ describe('snapshot() correctness', () => {
 
   it('mutating snapshot does not bleed into internal store', () => {
     const vf = makeClient();
-    const snap = vf.snapshot(vf.flags.theme) as any;
+    const snap = vf.snapshot('theme') as any;
     try {
       snap.value = 'hacked';
     } catch (_) {}
@@ -607,7 +607,7 @@ describe('Accessor validation', () => {
     // accessor returns fallback when disabled
     expect(vf.flags.theme.value).toBe('light');
     // snapshot exposes the immutable schema fallback
-    expect(vf.snapshot(vf.flags.theme).fallback).toBe('light');
+    expect(vf.snapshot('theme').fallback).toBe('light');
   });
 
   it('all accessor properties throw after dispose', () => {
@@ -655,7 +655,7 @@ describe('Dispose guard', () => {
   it('snapshot() throws after dispose', () => {
     const vf = makeClient();
     vf.dispose();
-    expect(() => vf.snapshot(vf.flags.theme)).toThrow(/disposed/i);
+    expect(() => vf.snapshot('theme')).toThrow(/disposed/i);
   });
 
   it('debugSnapshots() throws after dispose', () => {
@@ -703,7 +703,7 @@ describe('Constructor validation', () => {
     });
     expect(vf.flags.theme.value).toBe('dark');
     expect(vf.flags.fontSize.value).toBe(24);
-    expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(80);
+    expect(vf.snapshot('fontSize').rollout).toBe(80);
   });
 
   it('applyState() with prototype pollution throws and leaves store clean', () => {

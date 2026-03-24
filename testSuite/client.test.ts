@@ -294,7 +294,7 @@ describe('hydrate()', () => {
     vf.hydrate('fontSize', { value: 32 });
     expect(vf.flags.fontSize.value).toBe(32);
     expect(vf.flags.fontSize.enabled).toBe(true); // untouched
-    expect(vf.snapshot(vf.flags.fontSize).fallback).toBe(16); // untouched
+    expect(vf.snapshot('fontSize').fallback).toBe(16); // untouched
   });
 
   it('can update value, enabled, and rollout independently', () => {
@@ -303,7 +303,7 @@ describe('hydrate()', () => {
     vf.hydrate('checkoutVariant', { enabled: false });
 
     expect(vf.flags.checkoutVariant.value).toBe('control'); // disabled → fallback
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(20);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(20);
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
   });
 
@@ -312,20 +312,20 @@ describe('hydrate()', () => {
       vf.hydrate('themeColor', { fallback: 'white', enabled: false } as any),
     ).toThrow(VoidFlagError);
     expect(vf.flags.themeColor.value).toBe('#000000');
-    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
   });
 
   it('snapshot().fallback always reflects the schema fallback regardless of enabled state', () => {
     vf.hydrate('themeColor', { value: 'dark', enabled: true });
-    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     vf.hydrate('themeColor', { enabled: false });
-    expect(vf.snapshot(vf.flags.themeColor).fallback).toBe('#000000');
+    expect(vf.snapshot('themeColor').fallback).toBe('#000000');
   });
 
   it('simulated poll cycle — sequential hydrations stay consistent', () => {
     vf.hydrate('checkoutVariant', { value: 'treatment', enabled: true, rollout: 50 });
     expect(vf.flags.checkoutVariant.value).toBe('treatment');
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(50);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
 
     vf.hydrate('checkoutVariant', { enabled: false });
     expect(vf.flags.checkoutVariant.value).toBe('control');
@@ -333,7 +333,7 @@ describe('hydrate()', () => {
 
     vf.hydrate('checkoutVariant', { enabled: true, value: 'treatment-v2', rollout: 100 });
     expect(vf.flags.checkoutVariant.value).toBe('treatment-v2');
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(100);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(100);
   });
 
   it('hydrating all 12 flags — all reflect immediately', () => {
@@ -355,7 +355,7 @@ describe('hydrate()', () => {
     expect(vf.flags.maintenanceMode.value).toBe(false); // disabled → fallback
     expect(vf.flags.betaAccess.value).toBe(true);
     expect(vf.flags.themeColor.value).toBe('red');
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(50);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
     expect(vf.flags.apiRegion.value).toBe('eu-west-1');
     expect(vf.flags.bannerCopy.value).toBe('New Feature!');
     expect(vf.flags.fontSize.value).toBe(18);
@@ -489,60 +489,60 @@ describe('isRolledOutFor()', () => {
 
 describe('snapshot()', () => {
   it('returns a frozen plain object', () => {
-    expect(Object.isFrozen(vf.snapshot(vf.flags.themeColor))).toBe(true);
+    expect(Object.isFrozen(vf.snapshot('themeColor'))).toBe(true);
   });
 
   it('is a point-in-time copy — not live', () => {
-    const snap = vf.snapshot(vf.flags.themeColor);
+    const snap = vf.snapshot('themeColor');
     vf.hydrate('themeColor', { value: 'red' });
     expect(snap.value).toBe('#000000');
   });
 
   it('mutation attempt on snapshot throws', () => {
-    const snap = vf.snapshot(vf.flags.themeColor);
+    const snap = vf.snapshot('themeColor');
     expect(() => {
       (snap as any).value = 'hacked';
     }).toThrow();
   });
 
   it('each snapshot() call returns a distinct object', () => {
-    expect(vf.snapshot(vf.flags.themeColor)).not.toBe(vf.snapshot(vf.flags.themeColor));
+    expect(vf.snapshot('themeColor')).not.toBe(vf.snapshot('themeColor'));
   });
 
   it('snapshot has exactly (enabled, value, fallback, rollout) for all flag types', () => {
-    const boolSnap = vf.snapshot(vf.flags.darkMode);
+    const boolSnap = vf.snapshot('darkMode');
     expect(Object.keys(boolSnap).sort()).toEqual(
       ['enabled', 'fallback', 'rollout', 'value'].sort(),
     );
 
-    const strSnap = vf.snapshot(vf.flags.themeColor);
+    const strSnap = vf.snapshot('themeColor');
     expect(Object.keys(strSnap).sort()).toEqual(
       ['enabled', 'fallback', 'rollout', 'value'].sort(),
     );
 
-    const numSnap = vf.snapshot(vf.flags.fontSize);
+    const numSnap = vf.snapshot('fontSize');
     expect(Object.keys(numSnap).sort()).toEqual(
       ['enabled', 'fallback', 'rollout', 'value'].sort(),
     );
   });
 
   it('boolean snapshot rollout defaults to 0', () => {
-    expect(vf.snapshot(vf.flags.darkMode).rollout).toBe(0);
+    expect(vf.snapshot('darkMode').rollout).toBe(0);
   });
 
   it('string/number snapshot rollout defaults to 100', () => {
-    expect(vf.snapshot(vf.flags.themeColor).rollout).toBe(100);
-    expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(100);
+    expect(vf.snapshot('themeColor').rollout).toBe(100);
+    expect(vf.snapshot('fontSize').rollout).toBe(100);
   });
 
   it('snapshot rollout reflects hydrated value', () => {
     vf.hydrate('themeColor', { rollout: 60 });
-    expect(vf.snapshot(vf.flags.themeColor).rollout).toBe(60);
+    expect(vf.snapshot('themeColor').rollout).toBe(60);
   });
 
   it('snapshot reflects raw stored value even when disabled (differs from accessor)', () => {
     vf.hydrate('fontSize', { value: 32, enabled: false });
-    const snap = vf.snapshot(vf.flags.fontSize);
+    const snap = vf.snapshot('fontSize');
     expect(snap.value).toBe(32); // raw stored value
     expect(snap.enabled).toBe(false);
     expect(snap.fallback).toBe(16);
@@ -550,9 +550,9 @@ describe('snapshot()', () => {
   });
 
   it('two snapshots at different times capture different values', () => {
-    const s1 = vf.snapshot(vf.flags.bannerCopy);
+    const s1 = vf.snapshot('bannerCopy');
     vf.hydrate('bannerCopy', { value: 'Updated!' });
-    const s2 = vf.snapshot(vf.flags.bannerCopy);
+    const s2 = vf.snapshot('bannerCopy');
     expect(s1.value).toBe('Welcome');
     expect(s2.value).toBe('Updated!');
   });
@@ -585,7 +585,7 @@ describe('debugSnapshots()', () => {
   it('values match individual snapshots', () => {
     vf.hydrate('themeColor', { value: 'dark' });
     const all = vf.debugSnapshots();
-    const single = vf.snapshot(vf.flags.themeColor);
+    const single = vf.snapshot('themeColor');
     expect(all.themeColor).toEqual(single);
   });
 
@@ -633,7 +633,7 @@ describe('dispose()', () => {
 
   it('snapshot() throws after dispose', () => {
     vf.dispose();
-    expect(() => vf.snapshot(vf.flags.themeColor)).toThrow(VoidFlagError);
+    expect(() => vf.snapshot('themeColor')).toThrow(VoidFlagError);
   });
 
   it('debugSnapshots() throws after dispose', () => {
@@ -649,7 +649,7 @@ describe('dispose()', () => {
   it('error message mentions disposed', () => {
     vf.dispose();
     try {
-      vf.snapshot(vf.flags.darkMode);
+      vf.snapshot('darkMode');
     } catch (e) {
       expect((e as VoidFlagError).message).toMatch(/disposed/i);
     }
@@ -809,14 +809,14 @@ describe('stress', () => {
     expect(accs.fontSize.value).toBe(99);
     expect(accs.darkMode.value).toBe(true);
     expect(accs.checkoutVariant.value).toBe('treatment');
-    expect(vf.snapshot(vf.flags.checkoutVariant).rollout).toBe(33);
+    expect(vf.snapshot('checkoutVariant').rollout).toBe(33);
   });
 
   it('snapshot under rapid hydration always captures the moment it was called', () => {
     const snapshots: ReturnType<typeof vf.snapshot>[] = [];
     for (let i = 0; i < 20; i++) {
       vf.hydrate('itemsPerPage', { value: i * 5 });
-      snapshots.push(vf.snapshot(vf.flags.itemsPerPage));
+      snapshots.push(vf.snapshot('itemsPerPage'));
     }
     for (let i = 0; i < 20; i++) {
       expect(snapshots[i].value).toBe(i * 5);
@@ -827,7 +827,7 @@ describe('stress', () => {
     const node = vf.flags.themeColor;
     for (let i = 0; i < 200; i++) {
       vf.hydrate('themeColor', { value: `v${i}`, enabled: true });
-      const snap = vf.snapshot(vf.flags.themeColor);
+      const snap = vf.snapshot('themeColor');
       expect(snap.value).toBe(node.value);
     }
   });
@@ -845,7 +845,7 @@ describe('stress', () => {
       } else {
         expect(themeNode.value).toBe('#000000'); // fallback
       }
-      expect(vf.snapshot(vf.flags.fontSize).rollout).toBe(i % 100);
+      expect(vf.snapshot('fontSize').rollout).toBe(i % 100);
     }
   });
 
