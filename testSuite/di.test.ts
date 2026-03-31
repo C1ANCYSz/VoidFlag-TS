@@ -1,12 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, FlagMap } from '@voidflag/sdk';
 
 /*
 
@@ -27,14 +20,14 @@ SNAPSHOT — injection state captured correctly at any point
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
 
-const schema = defineFlags({
-  useStripe: boolean().fallback(false),
-  checkoutVariant: string().fallback('legacy'),
-  themeEngine: string().fallback('default'),
-  apiVersion: string().fallback('v1'),
-  logLevel: string().fallback('warn'),
-  workerCount: number().fallback(1),
-});
+export const schema = {
+  useStripe: { type: 'BOOLEAN', fallback: false },
+  checkoutVariant: { type: 'STRING', fallback: 'legacy' },
+  themeEngine: { type: 'STRING', fallback: 'default' },
+  apiVersion: { type: 'STRING', fallback: 'v1' },
+  logLevel: { type: 'STRING', fallback: 'warn' },
+  workerCount: { type: 'NUMBER', fallback: 1 },
+} as const satisfies FlagMap;
 
 type Schema = typeof schema;
 

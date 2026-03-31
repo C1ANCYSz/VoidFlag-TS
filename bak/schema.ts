@@ -1,5 +1,4 @@
-import kebabCase from 'kebab-case';
-import { VoidFlagError } from './VoidFlagError.js';
+import { VoidFlagError } from './arch/subscribers.js';
 import { RESERVED_KEYS } from '@voidflag/shared';
 /* --------------------------------------------
    Flag Types (Schema Only)

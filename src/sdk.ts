@@ -93,15 +93,19 @@ export interface VoidClientInternal<S extends FlagMap> {
 }
 
 // ─── Client Options ───────────────────────────────────────────────────────────
-
-interface DevOptions<S extends FlagMap> {
+interface BaseClientOptions<S extends FlagMap> {
   schema: S;
+  onConnect?: () => void;
+  onDisconnect?: () => void;
+  onError?: (err: Error, attempt: number) => void; // ← add this
+  onFallback?: () => void; // ← SSE-specific: fired when giving up and switching to polling
+}
+interface DevOptions<S extends FlagMap> extends BaseClientOptions<S> {
   dev: true;
   envKey?: never;
 }
 
-interface ProdOptions<S extends FlagMap> {
-  schema: S;
+interface ProdOptions<S extends FlagMap> extends BaseClientOptions<S> {
   envKey: string;
   dev?: never;
 }
@@ -183,32 +187,54 @@ function buildTransport<S extends FlagMap>(
   client: VoidClientInternal<S>,
   data: ConnectResponse,
   baseUrl: string,
+  callbacks: {
+    onConnect?: () => void;
+    onDisconnect?: () => void;
+    onError?: (err: Error, attempt: number) => void; // ← add this
+    onFallback?: () => void;
+  },
 ): Transport {
   switch (data.transport) {
     case 'polling':
       return new PollingTransport(client, client.envKey!, baseUrl, {
         interval: data.pollInterval ?? 60_000,
-        onError: (err) => console.error('[VoidClient] polling error:', err),
+        onError: (err) => {
+          console.error('[VoidClient] polling error:', err);
+          callbacks.onError?.(err, 1); // ← polling doesn't track attempts, so always 1
+        },
+        onConnect: callbacks.onConnect, // ← pass through
+        onDisconnect: callbacks.onDisconnect, // ← pass through
       });
 
     case 'sse': {
       const fallback = new PollingTransport(client, client.envKey!, baseUrl, {
-        interval: 60_000,
-        onError: (err) => console.error('[VoidClient] fallback polling error:', err),
+        interval: 30_000,
+        onConnect: callbacks.onConnect, // ← pass through
+        onDisconnect: callbacks.onDisconnect, // ← pass through
+
+        onError: (err) => {
+          console.error('[VoidClient] fallback polling error:', err);
+          callbacks.onError?.(err, 1);
+        },
       });
 
       return new SSETransport(client, fallback, {
         baseUrl,
         streamUrl: data.streamUrl,
-        onError: (err, attempt) =>
-          console.error(`[VoidClient] SSE error (attempt ${attempt}):`, err),
-        onFallback: () =>
-          console.warn('[VoidClient] SSE permanently lost, switched to polling fallback'),
+        onConnect: callbacks.onConnect, // ← pass through
+        onDisconnect: callbacks.onDisconnect, // ← pass through
+        onError: (err, attempt) => {
+          console.error(`[VoidClient] SSE error (attempt ${attempt}):`, err);
+          callbacks.onError?.(err, attempt); // ← SSE tracks attempts
+        },
+        onFallback: () => {
+          console.warn('[VoidClient] SSE permanently lost, switched to polling fallback');
+          callbacks.onFallback?.();
+        },
       });
     }
 
     default: {
-      // Exhaustiveness guard — new variants in ConnectResponse will cause a compile error here.
       const _exhaustive: never = data;
       throw new ConnectError(
         `Unsupported transport type from server: ${(_exhaustive as ConnectResponse).transport}`,
@@ -232,8 +258,11 @@ function stableHash(input: string): number {
 
 export class VoidClient<S extends FlagMap> {
   public readonly flags: { [K in keyof S]: Accessor<S[K]> };
+  private readonly onConnectCallback?: () => void;
+  private readonly onDisconnectCallback?: () => void;
+  private readonly onErrorCallback?: (err: Error, attempt: number) => void; // ← add this
+  private readonly onFallbackCallback?: () => void; // ← ADD THIS
 
-  // Not private — transport.ts reads envKey inside buildTransport().
   readonly envKey?: string;
 
   #disposed = false;
@@ -246,9 +275,15 @@ export class VoidClient<S extends FlagMap> {
 
   constructor(opts: ClientOptions<S>) {
     this.store = Object.create(null) as Store<S>;
+    this.onConnectCallback = opts.onConnect;
+    this.onDisconnectCallback = opts.onDisconnect;
+    this.onErrorCallback = opts.onError; // ← add this
+    this.onFallbackCallback = opts.onFallback; // ← ADD THIS
 
     // Runtime guard — TypeScript prevents this at compile time, but callers
     // can bypass with `as any`, so we keep the check.
+    this.#validateSchema(opts.schema);
+
     if (opts.dev && opts.envKey) {
       throw new VoidFlagError(
         'dev and envKey are mutually exclusive — use one or the other',
@@ -269,7 +304,15 @@ export class VoidClient<S extends FlagMap> {
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
-
+  #validateSchema(schema: FlagMap): void {
+    for (const key of Object.keys(schema)) {
+      if (RESERVED_KEYS.has(key)) {
+        throw new VoidFlagError(
+          `Invalid flag name "${key}" — reserved Object.prototype property`,
+        );
+      }
+    }
+  }
   async connect(): Promise<void> {
     this.#assertNotDisposed();
 
@@ -283,12 +326,14 @@ export class VoidClient<S extends FlagMap> {
         onConnect: () => {
           this.connected = true;
           console.log(`[voidflag] connected (dev) → http://localhost:${devPort}`);
+          this.onConnectCallback?.();
         },
         onDisconnect: () => {
           this.connected = false;
           console.warn(`[voidflag] connection lost`);
+          this.onDisconnectCallback?.();
         },
-        onError: (_, attempt) => {
+        onError: (err, attempt) => {
           if (attempt === 1) {
             console.warn(
               `\n[voidflag] dev server not running\n` +
@@ -299,56 +344,89 @@ export class VoidClient<S extends FlagMap> {
           } else {
             console.warn(`[voidflag] retrying (attempt ${attempt})...`);
           }
+          this.onErrorCallback?.(err, attempt); // ← fire user callback
         },
       });
       void this.transport.start();
       return;
     }
 
-    try {
-      if (!this.envKey) throw new VoidFlagError('envKey is required.');
+    if (!this.envKey) {
+      throw new VoidFlagError('envKey is required');
+    }
 
-      const res = await fetch(`${VOIDFLAG_API_URL}/api/connect`, {
+    let res: Response;
+    try {
+      res = await fetch(`${VOIDFLAG_API_URL}/api/connect`, {
         method: 'POST',
         headers: { 'X-API-Key': this.envKey },
       });
-
-      if (!res.ok)
-        throw new ConnectError(`Connect failed with HTTP ${res.status}`, res.status);
-
-      const data = (await res.json()) as ConnectResponse;
-      if (this.#disposed) return;
-
-      this.transport?.stop();
-      this.transport = undefined;
-      this.connected = false;
-      this.transport = buildTransport(
-        this as VoidClientInternal<S>,
-        data,
-        `${VOIDFLAG_API_URL}/api`,
-      );
-
-      await this.transport.start();
-      if (this.#disposed) return;
-
-      this.connected = true;
-      console.log(`[voidflag] connected → ${VOIDFLAG_API_URL}`);
     } catch (err) {
-      const isFetchFailed = err instanceof TypeError && err.message === 'fetch failed';
-      const isConnectError = err instanceof ConnectError;
+      const message =
+        err instanceof TypeError
+          ? 'server unreachable'
+          : err instanceof Error
+            ? err.message
+            : String(err);
 
-      if (isFetchFailed || isConnectError) {
-        console.warn(
-          `\n[voidflag] connection failed\n` +
-            `  url      → ${VOIDFLAG_API_URL}\n` +
-            `  reason   → ${isFetchFailed ? 'server unreachable' : `HTTP ${(err as ConnectError).status}`}\n` +
-            `  fallback → schema defaults (read-only)\n`,
-        );
-        return;
+      throw new VoidFlagError(
+        `connection failed\n` +
+          `  url    → ${VOIDFLAG_API_URL}\n` +
+          `  reason → ${message}`,
+      );
+    }
+
+    if (!res.ok) {
+      let detail = `HTTP ${res.status}`;
+      try {
+        const body = (await res.json()) as { message?: string };
+        if (body.message) detail += ` — ${body.message}`;
+      } catch {
+        // no parseable body, keep the status-only detail
       }
 
-      throw err;
+      throw new VoidFlagError(
+        `connection failed\n` +
+          `  url    → ${VOIDFLAG_API_URL}\n` +
+          `  reason → ${detail}`,
+      );
     }
+
+    const data = (await res.json()) as ConnectResponse;
+    if (this.#disposed) return;
+
+    this.transport?.stop();
+    this.transport = undefined;
+    this.connected = false;
+
+    this.transport = buildTransport(
+      this as VoidClientInternal<S>,
+      data,
+      `${VOIDFLAG_API_URL}/api`,
+      {
+        onConnect: () => {
+          this.connected = true;
+          console.log(`[voidflag] connected → ${VOIDFLAG_API_URL}`);
+          this.onConnectCallback?.(); // ← fire user callback
+        },
+        onDisconnect: () => {
+          this.connected = false;
+          console.warn(`[voidflag] connection lost`);
+          this.onDisconnectCallback?.(); // ← fire user callback
+        },
+        onError: (err, attempt) => {
+          console.error(`[voidflag] error (attempt ${attempt}):`, err);
+          this.onErrorCallback?.(err, attempt); // ← fire user callback
+        },
+        onFallback: () => {
+          console.warn('[voidflag] SSE failed permanently, falling back to polling');
+          this.onFallbackCallback?.(); // ← ADD THIS
+        },
+      },
+    );
+
+    await this.transport.start();
+    if (this.#disposed) return;
   }
 
   applyState(overrides: StateMap<S>): this {

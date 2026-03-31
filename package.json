@@ -19,12 +19,11 @@
   },
   "dependencies": {
     "@types/node": "^25.2.3",
-    "@voidflag/shared": "workspace:*",
-    "eventsource": "^4.1.0",
-    "kebab-case": "^2.0.2"
+    "eventsource": "^4.1.0"
   },
   "packageManager": "pnpm@10.28.2",
   "devDependencies": {
+    "@voidflag/shared": "workspace:*",
     "vitest": "^4.0.18"
   }
 }

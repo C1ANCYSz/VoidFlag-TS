@@ -1,49 +1,42 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
 
 /* ============================================================
-   Schemas
+    Schemas
 ============================================================ */
 
-const smallSchema = defineFlags({
-  darkMode: boolean().fallback(false),
-  theme: string().fallback('light'),
-  fontSize: number().fallback(16),
-});
+export const smallSchema = {
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  theme: { type: 'STRING', fallback: 'light' },
+  fontSize: { type: 'NUMBER', fallback: 16 },
+} as const satisfies FlagMap;
 
-const bigSchema = defineFlags({
-  darkMode: boolean().fallback(false),
-  betaMode: boolean().fallback(false),
-  maintenanceMode: boolean().fallback(false),
-  analyticsEnabled: boolean().fallback(true),
-  experimentalEditor: boolean().fallback(false),
-  newOnboarding: boolean().fallback(false),
-  strictMode: boolean().fallback(true),
-  featurePreview: boolean().fallback(false),
-  theme: string().fallback('light'),
-  locale: string().fallback('en-US'),
-  currency: string().fallback('USD'),
-  apiVersion: string().fallback('v1'),
-  colorScheme: string().fallback('default'),
-  layoutVariant: string().fallback('grid'),
-  fontFamily: string().fallback('Inter'),
-  buttonStyle: string().fallback('rounded'),
-  fontSize: number().fallback(16),
-  maxUploadMb: number().fallback(10),
-  sessionTimeoutMin: number().fallback(30),
-  maxRetries: number().fallback(3),
-  cacheTtlSec: number().fallback(300),
-  paginationSize: number().fallback(20),
-  debounceMs: number().fallback(300),
-  rateLimit: number().fallback(100),
-});
+export const bigSchema = {
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  betaMode: { type: 'BOOLEAN', fallback: false },
+  maintenanceMode: { type: 'BOOLEAN', fallback: false },
+  analyticsEnabled: { type: 'BOOLEAN', fallback: true },
+  experimentalEditor: { type: 'BOOLEAN', fallback: false },
+  newOnboarding: { type: 'BOOLEAN', fallback: false },
+  strictMode: { type: 'BOOLEAN', fallback: true },
+  featurePreview: { type: 'BOOLEAN', fallback: false },
+  theme: { type: 'STRING', fallback: 'light' },
+  locale: { type: 'STRING', fallback: 'en-US' },
+  currency: { type: 'STRING', fallback: 'USD' },
+  apiVersion: { type: 'STRING', fallback: 'v1' },
+  colorScheme: { type: 'STRING', fallback: 'default' },
+  layoutVariant: { type: 'STRING', fallback: 'grid' },
+  fontFamily: { type: 'STRING', fallback: 'Inter' },
+  buttonStyle: { type: 'STRING', fallback: 'rounded' },
+  fontSize: { type: 'NUMBER', fallback: 16 },
+  maxUploadMb: { type: 'NUMBER', fallback: 10 },
+  sessionTimeoutMin: { type: 'NUMBER', fallback: 30 },
+  maxRetries: { type: 'NUMBER', fallback: 3 },
+  cacheTtlSec: { type: 'NUMBER', fallback: 300 },
+  paginationSize: { type: 'NUMBER', fallback: 20 },
+  debounceMs: { type: 'NUMBER', fallback: 300 },
+  rateLimit: { type: 'NUMBER', fallback: 100 },
+} as const satisfies FlagMap;
 
 /* ============================================================
    Helpers
@@ -726,14 +719,18 @@ describe('hydrate() interaction with applyState()', () => {
 
 describe('applyState() — small schema', () => {
   it('applyState() works on a 1-flag schema', () => {
-    const oneFlag = defineFlags({ darkMode: boolean().fallback(false) });
+    const oneFlag = {
+      darkMode: { type: 'BOOLEAN', fallback: false },
+    } satisfies FlagMap;
     const client = new VoidClient({ schema: oneFlag, dev: true });
     client.applyState({ darkMode: { value: true } });
     expect(client.flags.darkMode.value).toBe(true);
   });
 
   it('flags object is sealed — cannot add new keys', () => {
-    const oneFlag = defineFlags({ darkMode: boolean().fallback(false) });
+    const oneFlag = {
+      darkMode: { type: 'BOOLEAN', fallback: false },
+    } satisfies FlagMap;
     const client = new VoidClient({ schema: oneFlag, dev: true });
     expect(Object.isSealed(client.flags)).toBe(true);
   });

@@ -1,18 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
 
-const schema = defineFlags({
-  darkMode: boolean().fallback(false),
-  theme: string().fallback('light'),
-  retryCount: number().fallback(3),
-});
+export const schema = {
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  theme: { type: 'STRING', fallback: 'light' },
+  retryCount: { type: 'NUMBER', fallback: 3 },
+} as const satisfies FlagMap;
 
 function makeClient() {
   return new VoidClient({ schema, dev: true });

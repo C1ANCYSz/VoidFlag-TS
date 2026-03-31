@@ -1,41 +1,36 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, FlagMap } from '@voidflag/sdk';
 
 // ----------------------------------------------------------------
 // Schema
 // ----------------------------------------------------------------
 
-const schema = defineFlags({
+import type {} from '@voidflag/sdk';
+
+export const schema = {
   // Booleans
-  darkMode: boolean().fallback(false),
-  paymentSwitch: boolean().fallback(false),
-  maintenanceMode: boolean().fallback(false),
-  betaAccess: boolean().fallback(false),
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  paymentSwitch: { type: 'BOOLEAN', fallback: false },
+  maintenanceMode: { type: 'BOOLEAN', fallback: false },
+  betaAccess: { type: 'BOOLEAN', fallback: false },
 
   // Strings
-  themeColor: string().fallback('#000000'),
-  checkoutVariant: string().fallback('control'),
-  apiRegion: string().fallback('us-east-1'),
-  bannerCopy: string().fallback('Welcome'),
+  themeColor: { type: 'STRING', fallback: '#000000' },
+  checkoutVariant: { type: 'STRING', fallback: 'control' },
+  apiRegion: { type: 'STRING', fallback: 'us-east-1' },
+  bannerCopy: { type: 'STRING', fallback: 'Welcome' },
 
   // Numbers
-  fontSize: number().fallback(16),
-  maxUploadMb: number().fallback(10),
-  requestTimeoutMs: number().fallback(3000),
-  itemsPerPage: number().fallback(25),
-});
+  fontSize: { type: 'NUMBER', fallback: 16 },
+  maxUploadMb: { type: 'NUMBER', fallback: 10 },
+  requestTimeoutMs: { type: 'NUMBER', fallback: 3000 },
+  itemsPerPage: { type: 'NUMBER', fallback: 25 },
+} as const satisfies FlagMap;
 
 // Small schema for lazy-loading tests
-const SMALL_SCHEMA = defineFlags({
-  onlyOne: boolean().fallback(true),
-});
+export const SMALL_SCHEMA = {
+  onlyOne: { type: 'BOOLEAN', fallback: true },
+} as const satisfies FlagMap;
 
 type Schema = typeof schema;
 
@@ -850,7 +845,7 @@ describe('stress', () => {
   });
 
   it('handles empty schema without crashing', () => {
-    const emptyVf = new VoidClient({ schema: defineFlags({}), dev: true });
+    const emptyVf = new VoidClient({ schema: {}, dev: true });
     expect(emptyVf.allEnabled()).toBe(true);
     expect(emptyVf.debugSnapshots()).toEqual({});
     emptyVf.dispose();

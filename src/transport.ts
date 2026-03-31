@@ -70,6 +70,10 @@ export interface PollingTransportOptions {
   interval: number;
   /** Called when a fetch fails so the caller can log or react. */
   onError?: (err: FetchFlagsError) => void;
+  /** Called on first successful poll. */
+  onConnect?: () => void;
+  /** Called when polling starts failing after being healthy. */
+  onDisconnect?: () => void;
 }
 
 export class PollingTransport<S extends FlagMap> implements Transport {
@@ -77,6 +81,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   private abortController?: AbortController;
   private failCount = 0;
   private version = 0; // 0 = fresh client, triggers full fetch
+  private isConnected = false; // ← track state
 
   constructor(
     private readonly client: VoidClientInternal<S>,
@@ -115,7 +120,14 @@ export class PollingTransport<S extends FlagMap> implements Transport {
       });
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
+
+      if (this.isConnected) {
+        this.isConnected = false;
+        this.options.onDisconnect?.();
+      }
+
       this.failCount++;
+
       this.options.onError?.(
         new FetchFlagsError(
           `Network error after ${this.failCount} failure(s): ${err instanceof Error ? err.message : String(err)}`,
@@ -124,9 +136,20 @@ export class PollingTransport<S extends FlagMap> implements Transport {
       return;
     }
 
-    if (res.status === 204) return;
+    if (res.status === 204) {
+      if (!this.isConnected) {
+        this.isConnected = true;
+        this.options.onConnect?.();
+      }
+      this.failCount = 0;
+      return;
+    }
 
     if (!res.ok) {
+      if (this.isConnected) {
+        this.isConnected = false;
+        this.options.onDisconnect?.();
+      }
       this.failCount++;
       this.options.onError?.(
         new FetchFlagsError(
@@ -136,7 +159,10 @@ export class PollingTransport<S extends FlagMap> implements Transport {
       );
       return;
     }
-
+    if (!this.isConnected) {
+      this.isConnected = true;
+      this.options.onConnect?.();
+    }
     this.failCount = 0;
     const data = (await res.json()) as FlagPayload;
     this.version = data.version;

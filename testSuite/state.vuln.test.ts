@@ -10,31 +10,24 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
 
 /* ============================================================
    Schema
 ============================================================ */
 
-const schema = defineFlags({
-  darkMode: boolean().fallback(false),
-  analyticsEnabled: boolean().fallback(true),
-  theme: string().fallback('light'),
-  locale: string().fallback('en-US'),
-  fontSize: number().fallback(16),
-  rateLimit: number().fallback(100),
-  newOnboarding: boolean().fallback(false),
-  betaMode: boolean().fallback(false),
-  maxUploadMb: number().fallback(10),
-  colorScheme: string().fallback('default'),
-});
+export const schema = {
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  analyticsEnabled: { type: 'BOOLEAN', fallback: true },
+  theme: { type: 'STRING', fallback: 'light' },
+  locale: { type: 'STRING', fallback: 'en-US' },
+  fontSize: { type: 'NUMBER', fallback: 16 },
+  rateLimit: { type: 'NUMBER', fallback: 100 },
+  newOnboarding: { type: 'BOOLEAN', fallback: false },
+  betaMode: { type: 'BOOLEAN', fallback: false },
+  maxUploadMb: { type: 'NUMBER', fallback: 10 },
+  colorScheme: { type: 'STRING', fallback: 'default' },
+} as const satisfies FlagMap;
 
 function make() {
   return new VoidClient({ schema, dev: true });
@@ -549,16 +542,42 @@ describe('VULN 11 — accessor cache staleness after applyState()', () => {
    `Object.create(null)` removes them — verify this works.
 ============================================================ */
 
+// describe('VULN 12 — schema keys that shadow Object prototype methods', () => {
+//   it('a flag named "valueOf" throws', () => {
+//     expect(() => defineFlags({ valueOf: string().fallback('val') })).toThrowError(
+//       VoidFlagError,
+//     );
+//   });
+//   it('a flag named "hasOwnProperty" is rejected at schema definition time', () => {
+//     expect(() => defineFlags({ hasOwnProperty: boolean().fallback(false) })).toThrow(
+//       /reserved|invalid/i,
+//     );
+//   });
+// });
+
 describe('VULN 12 — schema keys that shadow Object prototype methods', () => {
-  it('a flag named "valueOf" throws', () => {
-    expect(() => defineFlags({ valueOf: string().fallback('val') })).toThrowError(
-      VoidFlagError,
-    );
+  it('a flag named "valueOf" throws during client construction', () => {
+    expect(
+      () =>
+        new VoidClient({
+          schema: {
+            valueOf: { type: 'STRING', fallback: 'val' },
+          } as FlagMap,
+          dev: true,
+        }),
+    ).toThrow(VoidFlagError);
   });
-  it('a flag named "hasOwnProperty" is rejected at schema definition time', () => {
-    expect(() => defineFlags({ hasOwnProperty: boolean().fallback(false) })).toThrow(
-      /reserved|invalid/i,
-    );
+
+  it('a flag named "hasOwnProperty" is rejected at schema validation time', () => {
+    expect(
+      () =>
+        new VoidClient({
+          schema: {
+            hasOwnProperty: { type: 'BOOLEAN', fallback: false },
+          } as FlagMap,
+          dev: true,
+        }),
+    ).toThrow(/reserved|invalid/i);
   });
 });
 

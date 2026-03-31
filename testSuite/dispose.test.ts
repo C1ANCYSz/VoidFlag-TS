@@ -1,21 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
 
-const schema = defineFlags({
-  darkMode: boolean().fallback(false),
-  paymentSwitch: boolean().fallback(true),
-  themeColor: string().fallback('#000000'),
-  checkoutVariant: string().fallback('control'),
-  fontSize: number().fallback(16),
-  maxItems: number().fallback(10),
-});
+export const schema = {
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  paymentSwitch: { type: 'BOOLEAN', fallback: true },
+  themeColor: { type: 'STRING', fallback: '#000000' },
+  checkoutVariant: { type: 'STRING', fallback: 'control' },
+  fontSize: { type: 'NUMBER', fallback: 16 },
+  maxItems: { type: 'NUMBER', fallback: 10 },
+} as const satisfies FlagMap;
 
 type Schema = typeof schema;
 let vf: VoidClient<Schema>;

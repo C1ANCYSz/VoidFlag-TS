@@ -1,27 +1,25 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  VoidClient,
-  VoidFlagError,
-  defineFlags,
-  boolean,
-  string,
-  number,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
 
-const schema = defineFlags({
-  darkMode: boolean().fallback(false),
-  paymentSwitch: boolean().fallback(true),
-  maintenanceMode: boolean().fallback(false),
-  betaAccess: boolean().fallback(false),
-  themeColor: string().fallback('#000000'),
-  checkoutVariant: string().fallback('control'),
-  apiRegion: string().fallback('us-east-1'),
-  bannerCopy: string().fallback('Welcome'),
-  fontSize: number().fallback(16),
-  maxUploadMb: number().fallback(10),
-  requestTimeoutMs: number().fallback(3000),
-  itemsPerPage: number().fallback(25),
-});
+export const schema = {
+  // Booleans
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  paymentSwitch: { type: 'BOOLEAN', fallback: true },
+  maintenanceMode: { type: 'BOOLEAN', fallback: false },
+  betaAccess: { type: 'BOOLEAN', fallback: false },
+
+  // Strings
+  themeColor: { type: 'STRING', fallback: '#000000' },
+  checkoutVariant: { type: 'STRING', fallback: 'control' },
+  apiRegion: { type: 'STRING', fallback: 'us-east-1' },
+  bannerCopy: { type: 'STRING', fallback: 'Welcome' },
+
+  // Numbers
+  fontSize: { type: 'NUMBER', fallback: 16 },
+  maxUploadMb: { type: 'NUMBER', fallback: 10 },
+  requestTimeoutMs: { type: 'NUMBER', fallback: 3000 },
+  itemsPerPage: { type: 'NUMBER', fallback: 25 },
+} as const satisfies FlagMap;
 
 type Schema = typeof schema;
 let vf: VoidClient<Schema>;

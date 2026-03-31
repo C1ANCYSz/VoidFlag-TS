@@ -5,29 +5,21 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import {
-  defineFlags,
-  boolean,
-  string,
-  number,
-  VoidClient,
-  VoidFlagError,
-} from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
 
-const flags = defineFlags({
-  darkMode: boolean().fallback(false),
-  betaFeatures: boolean().fallback(false),
-  maintenanceMode: boolean().fallback(true),
+export const flags = {
+  darkMode: { type: 'BOOLEAN', fallback: false },
+  betaFeatures: { type: 'BOOLEAN', fallback: false },
+  maintenanceMode: { type: 'BOOLEAN', fallback: true },
 
-  theme: string().fallback('light'),
-  locale: string().fallback('en-US'),
-  apiVersion: string().fallback('v1'),
+  theme: { type: 'STRING', fallback: 'light' },
+  locale: { type: 'STRING', fallback: 'en-US' },
+  apiVersion: { type: 'STRING', fallback: 'v1' },
 
-  fontSize: number().fallback(16),
-  maxRetries: number().fallback(3),
-  timeoutMs: number().fallback(5000),
-});
-
+  fontSize: { type: 'NUMBER', fallback: 16 },
+  maxRetries: { type: 'NUMBER', fallback: 3 },
+  timeoutMs: { type: 'NUMBER', fallback: 5000 },
+} as const satisfies FlagMap;
 function makeClient() {
   return new VoidClient({ schema: flags, dev: true });
 }
