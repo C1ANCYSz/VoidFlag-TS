@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 export const schema = {
   // Booleans
@@ -28,7 +28,7 @@ beforeEach(() => {
   vf = new VoidClient({ schema, dev: true });
 });
 
-// ================================================================
+// ===============================================================
 // CONSTRUCTION
 // ================================================================
 
@@ -95,7 +95,8 @@ describe('flags.*.value', () => {
 
   it('returns the fallback when disabled — ignores hydrated value', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: false });
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor.fallback).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
   });
 
   it('returns correct boolean value', () => {
@@ -110,17 +111,21 @@ describe('flags.*.value', () => {
 
   it('returns fallback for number when disabled', () => {
     vf.hydrate('fontSize', { value: 24, enabled: false });
-    expect(vf.flags.fontSize.value).toBe(16);
+    expect(vf.flags.fontSize.fallback).toBe(16);
+    expect(vf.flags.fontSize()).toBe(16);
   });
 
   it('returns fallback for boolean when disabled', () => {
     vf.hydrate('darkMode', { value: true, enabled: false });
-    expect(vf.flags.darkMode.value).toBe(false);
+    expect(vf.flags.darkMode()).toBe(false);
+    expect(vf.flags.darkMode.fallback).toBe(false);
   });
 
   it('flipping enabled back to true restores the hydrated value', () => {
     vf.hydrate('checkoutVariant', { value: 'treatment', enabled: false });
-    expect(vf.flags.checkoutVariant.value).toBe('control');
+    expect(vf.flags.checkoutVariant.fallback).toBe('control');
+    expect(vf.flags.checkoutVariant()).toBe('control');
+
     vf.hydrate('checkoutVariant', { enabled: true });
     expect(vf.flags.checkoutVariant.value).toBe('treatment');
   });
@@ -221,14 +226,18 @@ describe('hydrate()', () => {
     vf.hydrate('checkoutVariant', { rollout: 20 });
     vf.hydrate('checkoutVariant', { enabled: false });
 
-    expect(vf.flags.checkoutVariant.value).toBe('control'); // disabled → fallback
+    expect(vf.flags.checkoutVariant()).toBe('control'); // disabled → fallback
+    expect(vf.flags.checkoutVariant.fallback).toBe('control'); // disabled → fallback
+
     expect(vf.snapshot('checkoutVariant').rollout).toBe(20);
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
   });
 
   it('hydrating value changes what is returned when disabled', () => {
     vf.hydrate('themeColor', { value: 'white', enabled: false });
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
+    expect(vf.flags.themeColor.fallback).toBe('#000000');
+
     expect(vf.snapshot('themeColor').fallback).toBe('#000000'); // untouched
   });
 
@@ -245,17 +254,17 @@ describe('hydrate()', () => {
     vf.hydrate('requestTimeoutMs', { value: 5000, enabled: false });
     vf.hydrate('itemsPerPage', { value: 50 });
 
-    expect(vf.flags.darkMode.value).toBe(true);
-    expect(vf.flags.paymentSwitch.value).toBe(false);
-    expect(vf.flags.maintenanceMode.value).toBe(false); // disabled → fallback
-    expect(vf.flags.themeColor.value).toBe('red');
+    expect(vf.flags.darkMode()).toBe(true);
+    expect(vf.flags.paymentSwitch()).toBe(false);
+    expect(vf.flags.maintenanceMode()).toBe(false); // disabled → fallback
+    expect(vf.flags.themeColor()).toBe('red');
     expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
-    expect(vf.flags.apiRegion.value).toBe('eu-west-1');
-    expect(vf.flags.bannerCopy.value).toBe('New Feature!');
-    expect(vf.flags.fontSize.value).toBe(18);
-    expect(vf.flags.maxUploadMb.value).toBe(100);
-    expect(vf.flags.requestTimeoutMs.value).toBe(3000); // disabled → fallback
-    expect(vf.flags.itemsPerPage.value).toBe(50);
+    expect(vf.flags.apiRegion()).toBe('eu-west-1');
+    expect(vf.flags.bannerCopy()).toBe('New Feature!');
+    expect(vf.flags.fontSize()).toBe(18);
+    expect(vf.flags.maxUploadMb()).toBe(100);
+    expect(vf.flags.requestTimeoutMs()).toBe(3000); // disabled → fallback
+    expect(vf.flags.itemsPerPage()).toBe(50);
   });
 
   it('simulated poll cycle — sequential hydrations stay consistent', () => {
@@ -268,7 +277,7 @@ describe('hydrate()', () => {
     expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
 
     vf.hydrate('checkoutVariant', { enabled: false });
-    expect(vf.flags.checkoutVariant.value).toBe('control');
+    expect(vf.flags.checkoutVariant()).toBe('control');
 
     vf.hydrate('checkoutVariant', {
       enabled: true,

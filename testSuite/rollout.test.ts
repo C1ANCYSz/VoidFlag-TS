@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 export const schema = {
   checkoutVariant: { type: 'STRING', fallback: 'control' },
@@ -14,7 +14,7 @@ beforeEach(() => {
   vf = new VoidClient({ schema, dev: true });
 });
 
-// ================================================================
+// ===============================================================
 // DETERMINISM & BASIC RULES
 // ================================================================
 

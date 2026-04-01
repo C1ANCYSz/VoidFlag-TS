@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 /* ============================================================
    Schema
@@ -517,7 +517,8 @@ describe('VULN 11 — accessor cache staleness after applyState()', () => {
     const accessor = client.flags.fontSize;
     client.applyState({ fontSize: { value: 32, enabled: false } });
     expect(accessor.enabled).toBe(false);
-    expect(accessor.value).toBe(16); // fallback, not 32
+    expect(accessor()).toBe(16); // fallback, not 32
+    expect(accessor.fallback).toBe(16); // fallback, not 32
   });
 
   it('flags accessor always returns the exact same object reference (no re-creation)', () => {
@@ -581,7 +582,7 @@ describe('VULN 12 — schema keys that shadow Object prototype methods', () => {
   });
 });
 
-/* ============================================================
+/* ===========================================================
    VULNERABILITY 13
    `applyState()` with a patch that has `value: undefined` explicitly
    vs. a patch that simply doesn't have a `value` key. Both should

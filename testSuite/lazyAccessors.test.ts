@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 // ----------------------------------------------------------------
 // Schema — 55 flags, forces the lazy accessor path
@@ -196,7 +196,9 @@ describe('lazy accessors — large schema (55 flags)', () => {
 
   it('disabling a flag makes value return fallback', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: false });
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
+    expect(vf.flags.themeColor.fallback).toBe('#000000');
+
     expect(vf.snapshot('themeColor').fallback).toBe('#000000');
     expect(vf.flags.themeColor.enabled).toBe(false);
   });
@@ -311,7 +313,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
     for (let i = 0; i < 2_000; i++) {
       const on = i % 100 < 50;
       vf.hydrate('darkMode', { enabled: on });
-      expect(acc.value).toBe(on ? true : false); // false is the fallback
+      expect(acc()).toBe(on ? true : false); // false is the fallback
     }
   });
 
@@ -337,7 +339,8 @@ describe('lazy accessors — large schema (55 flags)', () => {
 
     expect(acc.value).toBe('stale');
     vf.hydrate('themeColor', { enabled: false });
-    expect(acc.value).toBe('#000000');
+    expect(acc()).toBe('#000000');
+    expect(acc.fallback).toBe('#000000');
 
     vf.hydrate('themeColor', { enabled: true });
     expect(acc.value).toBe('stale');
@@ -509,7 +512,7 @@ describe('lazy accessors — large schema (55 flags)', () => {
     for (let i = 0; i < 1000; i++) {
       const on = i % 2 === 0;
       vf.hydrate('checkoutVariant', { enabled: on });
-      expect(acc.value).toBe(on ? 'treatment' : 'control');
+      expect(acc()).toBe(on ? 'treatment' : 'control');
       expect(acc.enabled).toBe(on);
     }
   });

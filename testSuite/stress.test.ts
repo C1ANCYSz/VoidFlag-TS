@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, type FlagMap } from 'voidflag';
 
 export const schema = {
   // --- booleans ---
@@ -141,7 +141,7 @@ describe('mid-loop hydration', () => {
     for (let i = 0; i < 2_000; i++) {
       const on = i % 100 < 50;
       vf.hydrate('darkMode', { enabled: on });
-      expect(acc.value).toBe(on ? true : false); // false is fallback
+      expect(acc()).toBe(on ? true : false); // false is fallback
     }
   });
 
@@ -165,7 +165,7 @@ describe('alternating enable/disable', () => {
     for (let i = 0; i < 1000; i++) {
       const on = i % 2 === 0;
       vf.hydrate('checkoutVariant', { enabled: on });
-      expect(acc.value).toBe(on ? 'treatment' : 'control');
+      expect(acc()).toBe(on ? 'treatment' : 'control');
       expect(acc.enabled).toBe(on);
     }
   });

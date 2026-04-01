@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 /* ============================================================
     Schemas
@@ -213,20 +213,23 @@ describe('applyState() — enabled overrides', () => {
   it('disabling a flag makes accessor return the fallback', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark', enabled: false } });
-    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.theme()).toBe('light');
+    expect(client.flags.theme.fallback).toBe('light');
   });
 
   it('disabling a boolean flag makes accessor return the boolean fallback', () => {
     const client = makeBigClient();
     client.applyState({ analyticsEnabled: { value: false, enabled: false } });
     // fallback is true, flag is disabled → should return fallback
-    expect(client.flags.analyticsEnabled.value).toBe(true);
+    expect(client.flags.analyticsEnabled.fallback).toBe(true);
+    expect(client.flags.analyticsEnabled()).toBe(true);
   });
 
   it('disabling a number flag makes accessor return the numeric fallback', () => {
     const client = makeBigClient();
     client.applyState({ fontSize: { value: 32, enabled: false } });
-    expect(client.flags.fontSize.value).toBe(16);
+    expect(client.flags.fontSize()).toBe(16);
+    expect(client.flags.fontSize.fallback).toBe(16);
   });
 
   it('enabled: false is visible via accessor.enabled', () => {
@@ -238,7 +241,8 @@ describe('applyState() — enabled overrides', () => {
   it('re-enabling a flag restores value access', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark', enabled: false } });
-    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.theme()).toBe('light');
+    expect(client.flags.theme.fallback).toBe('light');
     client.applyState({ theme: { enabled: true } });
     expect(client.flags.theme.value).toBe('dark');
   });
@@ -246,7 +250,8 @@ describe('applyState() — enabled overrides', () => {
   it('accessor .value respects enabled=false', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'cosmic', enabled: false } });
-    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.theme.fallback).toBe('light');
+    expect(client.flags.theme()).toBe('light');
     expect(client.flags.theme.enabled).toBe(false);
   });
 
@@ -588,7 +593,8 @@ describe('accessor.enabled / allEnabled() after applyState()', () => {
   it('accessor.value returns fallback after disable', () => {
     const client = makeBigClient();
     client.applyState({ currency: { value: 'EUR', enabled: false } });
-    expect(client.flags.currency.value).toBe('USD');
+    expect(client.flags.currency()).toBe('USD');
+    expect(client.flags.currency.fallback).toBe('USD');
   });
 
   it('accessor.enabled is false after applyState disable', () => {
@@ -709,11 +715,12 @@ describe('hydrate() interaction with applyState()', () => {
     const client = makeBigClient();
     client.applyState({ theme: { value: 'dark' } });
     client.hydrate('theme', { enabled: false });
-    expect(client.flags.theme.value).toBe('light');
+    expect(client.flags.theme()).toBe('light');
+    expect(client.flags.theme.fallback).toBe('light');
   });
 });
 
-/* ============================================================
+/* ===========================================================
    12. applyState() on the small schema
 ============================================================ */
 
@@ -818,25 +825,25 @@ describe('full-schema stress test', () => {
     });
 
     // booleans
-    expect(client.flags.darkMode.value).toBe(true);
-    expect(client.flags.betaMode.value).toBe(true);
-    expect(client.flags.maintenanceMode.value).toBe(false); // disabled → fallback
-    expect(client.flags.analyticsEnabled.value).toBe(false);
-    expect(client.flags.strictMode.value).toBe(false);
+    expect(client.flags.darkMode()).toBe(true);
+    expect(client.flags.betaMode()).toBe(true);
+    expect(client.flags.maintenanceMode()).toBe(false); // disabled → fallback
+    expect(client.flags.analyticsEnabled()).toBe(false);
+    expect(client.flags.strictMode()).toBe(false);
 
     // strings
-    expect(client.flags.theme.value).toBe('midnight');
-    expect(client.flags.locale.value).toBe('de-DE');
-    expect(client.flags.currency.value).toBe('EUR');
-    expect(client.flags.apiVersion.value).toBe('v3');
-    expect(client.flags.fontFamily.value).toBe('JetBrains Mono');
+    expect(client.flags.theme()).toBe('midnight');
+    expect(client.flags.locale()).toBe('de-DE');
+    expect(client.flags.currency()).toBe('EUR');
+    expect(client.flags.apiVersion()).toBe('v3');
+    expect(client.flags.fontFamily()).toBe('JetBrains Mono');
 
     // numbers
-    expect(client.flags.fontSize.value).toBe(14);
-    expect(client.flags.maxUploadMb.value).toBe(50);
-    expect(client.flags.sessionTimeoutMin.value).toBe(15);
-    expect(client.flags.cacheTtlSec.value).toBe(600);
-    expect(client.flags.rateLimit.value).toBe(200);
+    expect(client.flags.fontSize()).toBe(14);
+    expect(client.flags.maxUploadMb()).toBe(50);
+    expect(client.flags.sessionTimeoutMin()).toBe(15);
+    expect(client.flags.cacheTtlSec()).toBe(600);
+    expect(client.flags.rateLimit()).toBe(200);
 
     // disabled flag returns fallback
     expect(client.flags.maintenanceMode.enabled).toBe(false);

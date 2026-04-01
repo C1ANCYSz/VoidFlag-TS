@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 export const flags = {
   darkMode: { type: 'BOOLEAN', fallback: false },
@@ -24,7 +24,7 @@ function makeClient() {
   return new VoidClient({ schema: flags, dev: true });
 }
 
-// ══════════════════════════════════════════════════════════════════════════════
+// ═════════════════════════════════════════════════════════════════════════════
 // 1. TYPE GUARD — boolean flags
 // ══════════════════════════════════════════════════════════════════════════════
 
@@ -552,7 +552,8 @@ describe('snapshot() correctness', () => {
     // snapshot exposes the raw stored value
     expect(snap.value).toBe('dark');
     // accessor resolves through enabled → returns fallback
-    expect(vf.flags.theme.value).toBe('light');
+    expect(vf.flags.theme.fallback).toBe('light');
+    expect(vf.flags.theme()).toBe('light');
   });
 
   it('snapshot is frozen — direct mutation throws', () => {
@@ -583,7 +584,8 @@ describe('Accessor validation', () => {
     const vf = makeClient();
     const acc = vf.flags.theme;
     vf.applyState({ theme: { value: 'dark', enabled: false } });
-    expect(acc.value).toBe('light');
+    expect(acc.fallback).toBe('light');
+    expect(acc()).toBe('light');
   });
 
   it('accessor.value returns live value when enabled', () => {
@@ -597,7 +599,9 @@ describe('Accessor validation', () => {
     const vf = makeClient();
     vf.applyState({ theme: { value: 'dark', enabled: false } });
     // accessor returns fallback when disabled
-    expect(vf.flags.theme.value).toBe('light');
+    expect(vf.flags.theme()).toBe('light');
+    expect(vf.flags.theme.fallback).toBe('light');
+
     // snapshot exposes the immutable schema fallback
     expect(vf.snapshot('theme').fallback).toBe('light');
   });

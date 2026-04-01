@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, FlagMap } from 'voidflag';
 
 /*
 
@@ -18,7 +18,7 @@ SNAPSHOT — injection state captured correctly at any point
 
 */
 
-// ─── Schema ───────────────────────────────────────────────────────────────────
+// ─── Schema ──────────────────────────────────────────────────────────────────
 
 export const schema = {
   useStripe: { type: 'BOOLEAN', fallback: false },
@@ -61,27 +61,27 @@ class ApiV1Service {
 // ─── DI resolver helpers — mirrors real injection decision points ──────────────
 
 function resolvePayment(vf: VoidClient<Schema>) {
-  return vf.flags.useStripe.value ? new StripeService() : new PayPalService();
+  return vf.flags.useStripe() ? new StripeService() : new PayPalService();
 }
 
 function resolveCheckout(vf: VoidClient<Schema>) {
-  return vf.flags.checkoutVariant.value === 'express'
+  return vf.flags.checkoutVariant() === 'express'
     ? new ExpressCheckout()
     : new LegacyCheckout();
 }
 
 function resolveTheme(vf: VoidClient<Schema>) {
-  return vf.flags.themeEngine.value === 'ocean'
+  return vf.flags.themeEngine() === 'ocean'
     ? new OceanThemeService()
     : new DefaultThemeService();
 }
 
 function resolveApi(vf: VoidClient<Schema>) {
-  return vf.flags.apiVersion.value === 'v2' ? new ApiV2Service() : new ApiV1Service();
+  return vf.flags.apiVersion() === 'v2' ? new ApiV2Service() : new ApiV1Service();
 }
 
 function resolveWorkerPool(vf: VoidClient<Schema>): number {
-  return vf.flags.workerCount.value;
+  return vf.flags.workerCount();
 }
 
 // ─── djb2 — matches SDK stableHash exactly ────────────────────────────────────

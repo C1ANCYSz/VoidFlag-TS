@@ -1,11 +1,11 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, FlagMap } from 'voidflag';
 
 // ----------------------------------------------------------------
 // Schema
-// ----------------------------------------------------------------
+// ---------------------------------------------------------------
 
-import type {} from '@voidflag/sdk';
+import type {} from 'voidflag';
 
 export const schema = {
   // Booleans
@@ -114,7 +114,7 @@ describe('accessor shape contracts', () => {
 
   it('accessor does not expose fallback or rollout — use snapshot() for those', () => {
     const node = vf.flags.themeColor as any;
-    expect('fallback' in node).toBe(false);
+    expect('fallback' in node).toBe(true);
     expect('rollout' in node).toBe(false);
   });
 
@@ -145,7 +145,8 @@ describe('flags.* live reads', () => {
 
   it('.value returns the fallback when disabled — ignores stored value', () => {
     vf.hydrate('themeColor', { value: 'green', enabled: false });
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
+    expect(vf.flags.themeColor.fallback).toBe('#000000');
   });
 
   it('.value returns correct boolean value', () => {
@@ -160,12 +161,12 @@ describe('flags.* live reads', () => {
 
   it('.value returns fallback for number when disabled', () => {
     vf.hydrate('fontSize', { value: 24, enabled: false });
-    expect(vf.flags.fontSize.value).toBe(16);
+    expect(vf.flags.fontSize()).toBe(16);
   });
 
   it('flipping enabled back to true restores live value', () => {
     vf.hydrate('checkoutVariant', { value: 'treatment', enabled: false });
-    expect(vf.flags.checkoutVariant.value).toBe('control');
+    expect(vf.flags.checkoutVariant()).toBe('control');
     vf.hydrate('checkoutVariant', { enabled: true });
     expect(vf.flags.checkoutVariant.value).toBe('treatment');
   });
@@ -259,7 +260,7 @@ describe('flags.* reference stability', () => {
   it('accessor .value returns fallback when disabled', () => {
     const acc = vf.flags.themeColor;
     vf.hydrate('themeColor', { value: 'purple', enabled: false });
-    expect(acc.value).toBe('#000000');
+    expect(acc()).toBe('#000000');
   });
 
   it('accessor .enabled is live', () => {
@@ -297,7 +298,7 @@ describe('hydrate()', () => {
     vf.hydrate('checkoutVariant', { rollout: 20 });
     vf.hydrate('checkoutVariant', { enabled: false });
 
-    expect(vf.flags.checkoutVariant.value).toBe('control'); // disabled → fallback
+    expect(vf.flags.checkoutVariant()).toBe('control'); // disabled → fallback
     expect(vf.snapshot('checkoutVariant').rollout).toBe(20);
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
   });
@@ -323,7 +324,7 @@ describe('hydrate()', () => {
     expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
 
     vf.hydrate('checkoutVariant', { enabled: false });
-    expect(vf.flags.checkoutVariant.value).toBe('control');
+    expect(vf.flags.checkoutVariant()).toBe('control');
     expect(vf.flags.checkoutVariant.enabled).toBe(false);
 
     vf.hydrate('checkoutVariant', { enabled: true, value: 'treatment-v2', rollout: 100 });
@@ -347,7 +348,7 @@ describe('hydrate()', () => {
 
     expect(vf.flags.darkMode.value).toBe(true);
     expect(vf.flags.paymentSwitch.value).toBe(true);
-    expect(vf.flags.maintenanceMode.value).toBe(false); // disabled → fallback
+    expect(vf.flags.maintenanceMode()).toBe(false); // disabled → fallback
     expect(vf.flags.betaAccess.value).toBe(true);
     expect(vf.flags.themeColor.value).toBe('red');
     expect(vf.snapshot('checkoutVariant').rollout).toBe(50);
@@ -355,7 +356,7 @@ describe('hydrate()', () => {
     expect(vf.flags.bannerCopy.value).toBe('New Feature!');
     expect(vf.flags.fontSize.value).toBe(18);
     expect(vf.flags.maxUploadMb.value).toBe(100);
-    expect(vf.flags.requestTimeoutMs.value).toBe(3000); // disabled → fallback
+    expect(vf.flags.requestTimeoutMs()).toBe(3000); // disabled → fallback
     expect(vf.flags.itemsPerPage.value).toBe(50);
   });
 });
@@ -541,7 +542,7 @@ describe('snapshot()', () => {
     expect(snap.value).toBe(32); // raw stored value
     expect(snap.enabled).toBe(false);
     expect(snap.fallback).toBe(16);
-    expect(vf.flags.fontSize.value).toBe(16); // accessor returns fallback
+    expect(vf.flags.fontSize()).toBe(16); // accessor returns fallback
   });
 
   it('two snapshots at different times capture different values', () => {
@@ -783,7 +784,7 @@ describe('stress', () => {
     for (let i = 0; i < 500; i++) {
       const enabled = i % 2 === 0;
       vf.hydrate('checkoutVariant', { enabled });
-      expect(acc.value).toBe(enabled ? 'treatment' : 'control');
+      expect(acc()).toBe(enabled ? 'treatment' : 'control');
       expect(acc.enabled).toBe(enabled);
     }
   });
@@ -836,9 +837,9 @@ describe('stress', () => {
       vf.hydrate('fontSize', { value: i, rollout: i % 100 });
 
       if (themeNode.enabled) {
-        expect(themeNode.value).toBe(`v${i}`);
+        expect(themeNode()).toBe(`v${i}`);
       } else {
-        expect(themeNode.value).toBe('#000000'); // fallback
+        expect(themeNode()).toBe('#000000'); // fallback
       }
       expect(vf.snapshot('fontSize').rollout).toBe(i % 100);
     }

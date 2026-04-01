@@ -1,7 +1,7 @@
 import { FlagMap } from './FlagMap.js';
-import { Patch } from './Patch.js';
+import { PatchFor } from './PatchFor.js';
 
 export type HydrateFn<S extends FlagMap> = <K extends keyof S>(
   key: K,
-  patch: Patch,
+  patch: PatchFor<S[K]>,
 ) => void;

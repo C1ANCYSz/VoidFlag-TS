@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { FlagMap, VoidClient } from '../src/sdk';
-import { VoidFlagError } from '../src/VoidFlagError';
-import { PollingTransport, SSETransport } from '../src/transport';
+import { VoidClient } from '../src/sdk';
+import type { FlagMap } from '../src/types';
+import { VoidFlagError } from '../src/sdk/VoidFlagError';
+import { PollingTransport, SSETransport } from '../src/sdk/transport';
 
-// ─── Mock fetch globally ──────────────────────────────────────────────────────
+// ─── Mock fetch globally ─────────────────────────────────────────────────────
 
 const originalFetch = globalThis.fetch;
 let mockFetch: ReturnType<typeof vi.fn>;

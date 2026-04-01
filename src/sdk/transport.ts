@@ -1,4 +1,4 @@
-import type { HydrateFn, Patch, FlagMap } from '../types/index.js';
+import type { HydrateFn, FlagMap, PatchFor } from '../types/index.js';
 
 interface Transport {
   start(): void | Promise<void>;
@@ -6,10 +6,9 @@ interface Transport {
 }
 
 type FlagPayload = {
-  flags: Record<string, Patch>;
+  flags: Record<string, unknown>;
   version: number;
 };
-
 export class FetchFlagsError extends Error {
   constructor(
     message: string,
@@ -157,7 +156,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
     const data = (await res.json()) as FlagPayload;
     this.version = data.version;
     for (const key in data.flags) {
-      this.hydrate(key as keyof S, data.flags[key]);
+      this.hydrate(key as keyof S, data.flags[key] as PatchFor<S[keyof S]>);
     }
   }
 }
@@ -245,7 +244,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
     this.source.addEventListener('update', (e: MessageEvent) => {
       const payload = JSON.parse(e.data as string) as FlagPayload;
       for (const key in payload.flags) {
-        this.hydrate(key as keyof S, payload.flags[key]);
+        this.hydrate(key as keyof S, payload.flags[key] as PatchFor<S[keyof S]>);
       }
     });
 

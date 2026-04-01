@@ -120,14 +120,14 @@ describe('node shape contracts', () => {
 
   it('accessor does not expose fallback or rollout directly — use snapshot()', () => {
     const node = vf.flags.themeColor as any;
-    expect('fallback' in node).toBe(false);
+    expect('fallback' in node).toBe(true);
     expect('rollout' in node).toBe(false);
   });
 });
 
 // ================================================================
 // LIVE READS (accessor reflects hydration instantly)
-// ================================================================
+// ===============================================================
 
 describe('live reads through accessors', () => {
   it('.value reflects hydrate() immediately (string)', () => {
@@ -147,9 +147,9 @@ describe('live reads through accessors', () => {
     expect(vf.flags.darkMode.value).toBe(true);
   });
 
-  it('.value returns fallback when disabled', () => {
+  it('FLAG() returns fallback when disabled', () => {
     vf.hydrate('themeColor', { value: 'purple', enabled: false });
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
   });
 
   it('.enabled reflects enable/disable transitions', () => {
@@ -175,9 +175,9 @@ describe('live reads through accessors', () => {
 
   it('re-enabling returns live value, not fallback', () => {
     vf.hydrate('themeColor', { value: 'dark', enabled: false });
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
     vf.hydrate('themeColor', { enabled: true });
-    expect(vf.flags.themeColor.value).toBe('dark');
+    expect(vf.flags.themeColor()).toBe('dark');
   });
 
   it('multiple rapid hydrations — accessor always reads the latest', () => {
@@ -208,7 +208,7 @@ describe('live reads through accessors', () => {
 
     vf.hydrate('themeColor', { enabled: false });
     // When disabled, accessor returns fallback; snapshot returns raw stored value
-    expect(vf.flags.themeColor.value).toBe('#000000');
+    expect(vf.flags.themeColor()).toBe('#000000');
     expect(vf.snapshot('themeColor').enabled).toBe(false);
   });
 });

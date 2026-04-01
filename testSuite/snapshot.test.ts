@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, type FlagMap } from 'voidflag';
 
 export const schema = {
   darkMode: { type: 'BOOLEAN', fallback: false },
@@ -19,7 +19,7 @@ beforeEach(() => {
 
 // ================================================================
 // snapshot()
-// ================================================================
+// ===============================================================
 
 describe('snapshot()', () => {
   it('returns a frozen plain object', () => {
@@ -57,7 +57,8 @@ describe('snapshot()', () => {
   it('flags.x returns fallback when disabled', () => {
     vf.hydrate('fontSize', { value: 32, enabled: false });
 
-    expect(vf.flags.fontSize.value).toBe(16); // resolved
+    expect(vf.flags.fontSize()).toBe(16); // resolved
+    expect(vf.flags.fontSize.fallback).toBe(16);
   });
 
   it('boolean snapshot has rollout key', () => {

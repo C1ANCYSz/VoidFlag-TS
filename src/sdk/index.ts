@@ -221,7 +221,6 @@ export class VoidClient<S extends FlagMap> {
       validated.push([key, this.#validatePatch(String(key), patch)]);
     }
 
-    // Two-pass apply — a validation failure mid-loop leaves the store untouched.
     for (const [key, patch] of validated) {
       Object.assign(this.store[key], patch);
     }
@@ -259,12 +258,20 @@ export class VoidClient<S extends FlagMap> {
     this.connected = false;
     this.#disposed = true;
   }
-
-  /** @internal — called by transports only, not part of the public API */
-  #hydrate<K extends keyof S>(key: K, patch: Patch): void {
+  hydrate<K extends keyof S>(key: K, patch: PatchFor<S[K]>): void {
+    if (!this.dev) {
+      throw new VoidFlagError('hydrate() is only available when dev: true');
+    }
     this.#assertNotDisposed();
     assertSafeKey(String(key));
     this.#assertKeyExists(key);
+    this.#hydrate(key, patch);
+  }
+  /** @internal — called by transports only, not part of the public API */
+  #hydrate<K extends keyof S>(key: K, patch: PatchFor<S[K]>): void {
+    if (this.#disposed) return;
+    if (!Object.prototype.hasOwnProperty.call(this.store, key)) return;
+    assertSafeKey(String(key)); // still guard against poison keys from wire
     const validated = this.#validatePatch(String(key), patch);
     Object.assign(this.store[key], validated);
   }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 export const schema = {
   darkMode: { type: 'BOOLEAN', fallback: false },
@@ -11,7 +11,7 @@ function makeClient() {
   return new VoidClient({ schema, dev: true });
 }
 
-// ================================================================
+// ===============================================================
 // UNKNOWN KEYS
 // ================================================================
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, type FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, type FlagMap } from 'voidflag';
 
 export const schema = {
   darkMode: { type: 'BOOLEAN', fallback: false },
@@ -17,7 +17,7 @@ beforeEach(() => {
   vf = new VoidClient({ schema, dev: true });
 });
 
-// ================================================================
+// ===============================================================
 // API METHODS THROW AFTER DISPOSE
 // ================================================================
 
