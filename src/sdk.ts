@@ -86,18 +86,18 @@ type PatchFor<F extends FlagDefinition> = F extends { type: 'BOOLEAN' }
       : never;
 
 type StateMap<S extends FlagMap> = { [K in keyof S]?: PatchFor<S[K]> };
-/** @internal — exposes only what transports need, prevents access to the full client API */
-export interface VoidClientInternal<S extends FlagMap> {
-  readonly envKey?: string;
-  hydrate<K extends keyof S>(key: K, patch: Patch): void;
-}
+
+export type HydrateFn<S extends FlagMap> = <K extends keyof S>(
+  key: K,
+  patch: Patch,
+) => void;
 
 // ─── Client Options ───────────────────────────────────────────────────────────
 interface BaseClientOptions<S extends FlagMap> {
   schema: S;
   onConnect?: () => void;
   onDisconnect?: () => void;
-  onError?: (err: Error, attempt: number) => void; // ← add this
+  onError?: (err: Error, attempt: number) => void;
   onFallback?: () => void; // ← SSE-specific: fired when giving up and switching to polling
 }
 interface DevOptions<S extends FlagMap> extends BaseClientOptions<S> {
@@ -184,19 +184,20 @@ function buildAccessor<F extends FlagDefinition>(
 // ─── Transport Factory ────────────────────────────────────────────────────────
 
 function buildTransport<S extends FlagMap>(
-  client: VoidClientInternal<S>,
+  hydrate: HydrateFn<S>,
+  envKey: string,
   data: ConnectResponse,
   baseUrl: string,
   callbacks: {
     onConnect?: () => void;
     onDisconnect?: () => void;
-    onError?: (err: Error, attempt: number) => void; // ← add this
+    onError?: (err: Error, attempt: number) => void;
     onFallback?: () => void;
   },
 ): Transport {
   switch (data.transport) {
     case 'polling':
-      return new PollingTransport(client, client.envKey!, baseUrl, {
+      return new PollingTransport(hydrate, envKey, baseUrl, {
         interval: data.pollInterval ?? 60_000,
         onError: (err) => {
           console.error('[VoidClient] polling error:', err);
@@ -207,7 +208,7 @@ function buildTransport<S extends FlagMap>(
       });
 
     case 'sse': {
-      const fallback = new PollingTransport(client, client.envKey!, baseUrl, {
+      const fallback = new PollingTransport(hydrate, envKey, baseUrl, {
         interval: 30_000,
         onConnect: callbacks.onConnect, // ← pass through
         onDisconnect: callbacks.onDisconnect, // ← pass through
@@ -218,7 +219,7 @@ function buildTransport<S extends FlagMap>(
         },
       });
 
-      return new SSETransport(client, fallback, {
+      return new SSETransport(hydrate, fallback, {
         baseUrl,
         streamUrl: data.streamUrl,
         onConnect: callbacks.onConnect, // ← pass through
@@ -260,8 +261,9 @@ export class VoidClient<S extends FlagMap> {
   public readonly flags: { [K in keyof S]: Accessor<S[K]> };
   private readonly onConnectCallback?: () => void;
   private readonly onDisconnectCallback?: () => void;
-  private readonly onErrorCallback?: (err: Error, attempt: number) => void; // ← add this
-  private readonly onFallbackCallback?: () => void; // ← ADD THIS
+  private readonly onErrorCallback?: (err: Error, attempt: number) => void;
+  private readonly onFallbackCallback?: () => void;
+  #hydrateRef: HydrateFn<S>;
 
   readonly envKey?: string;
 
@@ -277,8 +279,9 @@ export class VoidClient<S extends FlagMap> {
     this.store = Object.create(null) as Store<S>;
     this.onConnectCallback = opts.onConnect;
     this.onDisconnectCallback = opts.onDisconnect;
-    this.onErrorCallback = opts.onError; // ← add this
-    this.onFallbackCallback = opts.onFallback; // ← ADD THIS
+    this.onErrorCallback = opts.onError;
+    this.onFallbackCallback = opts.onFallback;
+    this.#hydrateRef = this.#hydrate.bind(this);
 
     // Runtime guard — TypeScript prevents this at compile time, but callers
     // can bypass with `as any`, so we keep the check.
@@ -319,7 +322,7 @@ export class VoidClient<S extends FlagMap> {
     if (this.dev) {
       const devPort = readDevPort() ?? VOIDFLAG_DEV_PORT;
       const baseUrl = `http://localhost:${devPort}/api`;
-      this.transport = new SSETransport(this as VoidClientInternal<S>, null, {
+      this.transport = new SSETransport(this.#hydrateRef, null, {
         baseUrl,
         streamUrl: '/stream?dev=true',
         maxRetries: Infinity,
@@ -400,7 +403,8 @@ export class VoidClient<S extends FlagMap> {
     this.connected = false;
 
     this.transport = buildTransport(
-      this as VoidClientInternal<S>,
+      this.#hydrateRef,
+      this.envKey,
       data,
       `${VOIDFLAG_API_URL}/api`,
       {
@@ -420,7 +424,7 @@ export class VoidClient<S extends FlagMap> {
         },
         onFallback: () => {
           console.warn('[voidflag] SSE failed permanently, falling back to polling');
-          this.onFallbackCallback?.(); // ← ADD THIS
+          this.onFallbackCallback?.();
         },
       },
     );
@@ -500,7 +504,7 @@ export class VoidClient<S extends FlagMap> {
   // ─── Internal (transport layer only) ──────────────────────────────────────
 
   /** @internal — called by transports only, not part of the public API */
-  hydrate<K extends keyof S>(key: K, patch: Patch): void {
+  #hydrate<K extends keyof S>(key: K, patch: Patch): void {
     this.#assertNotDisposed();
     this.#assertSafeKey(String(key));
     this.#assertKeyExists(key);

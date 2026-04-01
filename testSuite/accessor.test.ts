@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { VoidClient, VoidFlagError, FlagMap } from '@voidflag/sdk';
+import { VoidClient, VoidFlagError, FlagMap } from 'voidflag';
 
 const schema = {
   darkMode: { type: 'BOOLEAN', fallback: false },

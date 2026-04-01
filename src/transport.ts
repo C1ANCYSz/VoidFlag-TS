@@ -1,5 +1,5 @@
-import { FlagMap } from './sdk.js';
-import { Patch, VoidClientInternal } from './sdk.js';
+import { FlagMap, HydrateFn } from './sdk.js';
+import { Patch } from './sdk.js';
 
 // ─── Transport interface ──────────────────────────────────────────────────────
 
@@ -49,16 +49,24 @@ function backoffDelay(attempt: number): number {
  * - Node 22+ and all modern browsers have a native EventSource.
  * - Older Node versions require the `eventsource` npm package.
  */
+let resolvedEventSource: typeof EventSource | null = null;
+
 async function resolveEventSource(): Promise<typeof EventSource> {
+  if (resolvedEventSource) return resolvedEventSource;
+
   if (typeof EventSource !== 'undefined') {
-    return EventSource;
+    resolvedEventSource = EventSource;
+    return resolvedEventSource;
   }
+
   try {
     const mod = await import('eventsource');
-    return mod.EventSource;
-  } catch {
+    resolvedEventSource = mod.EventSource;
+    return resolvedEventSource;
+  } catch (cause) {
     throw new Error(
       'EventSource is not available. On Node < 22, install the `eventsource` package.',
+      { cause },
     );
   }
 }
@@ -84,7 +92,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   private isConnected = false; // ← track state
 
   constructor(
-    private readonly client: VoidClientInternal<S>,
+    private readonly hydrate: HydrateFn<S>,
     private readonly envKey: string,
     private readonly baseUrl: string,
     private readonly options: PollingTransportOptions,
@@ -167,7 +175,7 @@ export class PollingTransport<S extends FlagMap> implements Transport {
     const data = (await res.json()) as FlagPayload;
     this.version = data.version;
     for (const key in data.flags) {
-      this.client.hydrate(key as keyof S, data.flags[key]);
+      this.hydrate(key as keyof S, data.flags[key]);
     }
   }
 }
@@ -199,7 +207,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
   private wasConnected = false;
 
   constructor(
-    private readonly client: VoidClientInternal<S>,
+    private readonly hydrate: HydrateFn<S>,
     private readonly fallback: Transport | null,
     private readonly options: SSETransportOptions,
   ) {
@@ -262,7 +270,7 @@ export class SSETransport<S extends FlagMap> implements Transport {
     this.source.addEventListener('update', (e: MessageEvent) => {
       const payload = JSON.parse(e.data as string) as FlagPayload;
       for (const key in payload.flags) {
-        this.client.hydrate(key as keyof S, payload.flags[key]);
+        this.hydrate(key as keyof S, payload.flags[key]);
       }
     });
 
