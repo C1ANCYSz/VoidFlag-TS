@@ -1,20 +1,14 @@
-import { FlagMap, HydrateFn } from './sdk.js';
-import { Patch } from './sdk.js';
-
-// ─── Transport interface ──────────────────────────────────────────────────────
+import type { HydrateFn, Patch, FlagMap } from '../types/index.js';
 
 interface Transport {
   start(): void | Promise<void>;
   stop(): void;
 }
 
-// ─── Payload ──────────────────────────────────────────────────────────────────
-
 type FlagPayload = {
   flags: Record<string, Patch>;
   version: number;
 };
-// ─── Errors ───────────────────────────────────────────────────────────────────
 
 export class FetchFlagsError extends Error {
   constructor(
@@ -25,8 +19,6 @@ export class FetchFlagsError extends Error {
     this.name = 'FetchFlagsError';
   }
 }
-
-// ─── Backoff ──────────────────────────────────────────────────────────────────
 
 const BASE_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;
@@ -41,8 +33,6 @@ function backoffDelay(attempt: number): number {
   const exp = Math.min(BASE_RETRY_MS * 2 ** (attempt - 1), MAX_RETRY_MS);
   return exp * 0.5 + Math.random() * exp * 0.5;
 }
-
-// ─── EventSource resolution ───────────────────────────────────────────────────
 
 /**
  * Returns the platform's EventSource constructor without casting through `any`.
@@ -71,16 +61,11 @@ async function resolveEventSource(): Promise<typeof EventSource> {
   }
 }
 
-// ─── Polling ──────────────────────────────────────────────────────────────────
-
 export interface PollingTransportOptions {
-  /** Base polling interval in milliseconds. */
   interval: number;
-  /** Called when a fetch fails so the caller can log or react. */
+
   onError?: (err: FetchFlagsError) => void;
-  /** Called on first successful poll. */
   onConnect?: () => void;
-  /** Called when polling starts failing after being healthy. */
   onDisconnect?: () => void;
 }
 
@@ -88,8 +73,8 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   private timer?: ReturnType<typeof setInterval>;
   private abortController?: AbortController;
   private failCount = 0;
-  private version = 0; // 0 = fresh client, triggers full fetch
-  private isConnected = false; // ← track state
+  private version = 0;
+  private isConnected = false;
 
   constructor(
     private readonly hydrate: HydrateFn<S>,
@@ -99,8 +84,6 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   ) {}
 
   start(): void {
-    // Jitter the first poll so a fleet of clients starting simultaneously
-    // doesn't hit the server in lockstep.
     const initialJitter = Math.random() * this.options.interval * 0.2;
     setTimeout(() => {
       void this.fetchFlags();
@@ -115,7 +98,6 @@ export class PollingTransport<S extends FlagMap> implements Transport {
   }
 
   private async fetchFlags(): Promise<void> {
-    // Cancel any in-flight request before issuing a new one.
     this.abortController?.abort();
     this.abortController = new AbortController();
 
@@ -186,13 +168,12 @@ export interface SSETransportOptions {
   baseUrl: string;
   streamUrl: string;
   maxRetries?: number;
+  probeInterval?: number;
+
   onError?: (err: Error, attempt: number) => void;
   onFallback?: () => void;
-  probeInterval?: number;
   onRestore?: () => void;
-  /** Called on every successful SSE connection (initial or reconnect). */
   onConnect?: () => void;
-  /** Called when SSE connection is lost. */
   onDisconnect?: () => void;
 }
 
@@ -215,8 +196,6 @@ export class SSETransport<S extends FlagMap> implements Transport {
     this.probeInterval = options.probeInterval ?? 10_000;
   }
 
-  // ─── Public ────────────────────────────────────────────────────────────────
-
   async start(): Promise<void> {
     this.stopped = false;
     return new Promise((resolve, reject) => {
@@ -232,8 +211,6 @@ export class SSETransport<S extends FlagMap> implements Transport {
     this.probeTimer = undefined;
     this.fallback?.stop();
   }
-
-  // ─── Connection ────────────────────────────────────────────────────────────
 
   private async connect(
     onReady?: () => void,
@@ -255,10 +232,8 @@ export class SSETransport<S extends FlagMap> implements Transport {
       this.wasConnected = true;
       this.retryCount = 0;
 
-      // Fire onConnect for every successful connection
       this.options.onConnect?.();
 
-      // Fire onRestore only on reconnects (not initial connection)
       if (isReconnect) {
         this.options.onRestore?.();
       }
@@ -279,7 +254,6 @@ export class SSETransport<S extends FlagMap> implements Transport {
       this.source = undefined;
       if (this.stopped) return;
 
-      // Fire onDisconnect when we lose connection
       if (this.wasConnected && this.retryCount === 0) {
         this.options.onDisconnect?.();
       }
@@ -306,8 +280,6 @@ export class SSETransport<S extends FlagMap> implements Transport {
       setTimeout(() => void this.connect(onReady, onFail), delay);
     };
   }
-
-  // ─── SSE recovery probe ────────────────────────────────────────────────────
 
   private scheduleProbe(): void {
     if (!this.fallback) return;

@@ -35,10 +35,13 @@ const client = new VoidClient({
 });
 
 // Access flags
-client.flags.darkMode.value; // boolean
-client.flags.theme.value; // string
-client.flags.maxItems.value; // number
-client.flags.darkMode.enabled; // boolean
+
+const { flags } = client;
+
+flags.darkMode(); // boolean
+flags.theme(); // string
+flags.maxItems(); // number
+flags.darkMode.enabled; // boolean
 ```
 
 ---
@@ -97,21 +100,6 @@ Get snapshots of all flags at once (useful for debugging):
 ```ts
 const all = client.debugSnapshots();
 ```
-
----
-
-## Overriding State (Testing)
-
-Use `applyState` to override flag values locally, useful in tests or Storybook:
-
-```ts
-client.applyState({
-  darkMode: { value: true, enabled: true },
-  maxItems: { value: 50 },
-});
-```
-
-`applyState` is type-safe: you can only set fields that match the flag's declared type.
 
 ---
 

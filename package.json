@@ -1,18 +1,29 @@
 {
   "name": "voidflag",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "description": "Type-safe feature flags and remote config SDK for Node.js — schema-first, real-time, zero runtime overhead.",
+  "license": "MIT",
+  "keywords": [
+    "feature-flags",
+    "feature-toggles",
+    "remote-config",
+    "sdk",
+    "typescript",
+    "sse",
+    "real-time",
+    "rollout",
+    "schema-first",
+    "voidflag"
+  ],
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     }
   },
-  "files": [
-    "dist"
-  ],
   "scripts": {
     "build": "tsc -p tsconfig.json --emitDeclarationOnly && node build.mjs",
     "test": "vitest --watch --reporter verbose --logHeapUsage"
